@@ -64,7 +64,8 @@ def load_data():
     # Daily readings
     daily_ws = spreadsheet.worksheet("Daily Readings")
     daily_df = pd.DataFrame(daily_ws.get_all_records())
-    daily_df["Date"] = pd.to_datetime(daily_df["Date"])
+    daily_df["Date"] = pd.to_datetime(daily_df["Date"], errors="coerce")
+    daily_df = daily_df.dropna(subset=["Date"])
     daily_df["Daily Usage (m³)"] = pd.to_numeric(daily_df["Daily Usage (m³)"], errors="coerce")
     daily_df["Total Flow (m³)"] = pd.to_numeric(daily_df["Total Flow (m³)"], errors="coerce")
 
