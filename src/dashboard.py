@@ -29,7 +29,7 @@ def check_password():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        valid_user = st.secrets.get("USERNAME", os.environ.get("DASH_USERNAME", "LPV_meters"))
+        valid_user = st.secrets.get("USERNAME", os.environ.get("DASH_USERNAME", "LPV_medidores"))
         valid_pass = st.secrets.get("PASSWORD", os.environ.get("DASH_PASSWORD", "agua"))
         if username == valid_user and password == valid_pass:
             st.session_state["authenticated"] = True
@@ -44,13 +44,11 @@ if not check_password():
 @st.cache_data(ttl=3600)
 def load_data():
     # Cloud: use Streamlit secrets. Local: use credentials file.
-    if "gcp_service_account" in st.secrets:
+    if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
         import json
-        from google.oauth2.service_account import Credentials as SACredentials
-        creds = SACredentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]), scopes=SCOPES
-        )
-        sheet_id = st.secrets.get("GOOGLE_SHEET_ID", os.environ["GOOGLE_SHEET_ID"])
+        info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        sheet_id = st.secrets["GOOGLE_SHEET_ID"]
     else:
         creds = Credentials.from_service_account_file(
             os.environ["GOOGLE_CREDENTIALS_FILE"], scopes=SCOPES
