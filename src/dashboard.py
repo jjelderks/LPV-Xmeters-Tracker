@@ -72,7 +72,11 @@ def load_data():
     # Spike log
     try:
         spike_ws = spreadsheet.worksheet("Spike Log")
-        spike_df = pd.DataFrame(spike_ws.get_all_records())
+        rows = spike_ws.get_all_values()
+        if len(rows) > 1:
+            spike_df = pd.DataFrame(rows[1:], columns=rows[0])
+        else:
+            spike_df = pd.DataFrame()
     except Exception:
         spike_df = pd.DataFrame()
 
