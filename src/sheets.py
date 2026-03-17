@@ -64,9 +64,10 @@ class SheetsWriter:
 
         headers = [
             "Name", "Meter Number",
-            "Initial Reading (Jan 6, 2026)",
+            "Initial Reading (m³)",
+            "Initial Reading Date",
             "Latest Total Flow (m³)",
-            "Total Usage Since Jan 6, 2026 (m³)",
+            "Total Usage Since Initial Reading (m³)",
             "Last Updated",
         ]
 
@@ -76,17 +77,19 @@ class SheetsWriter:
             init = initials.get(name, {})
             lat = latest.get(name, {})
             initial_val = init.get("initial_reading")
+            initial_date = init.get("initial_reading_date", "")
             latest_flow = lat.get("total_flow")
             if initial_val is not None and latest_flow is not None:
-                usage_since_jan6 = round(float(latest_flow) - float(initial_val), 4)
+                total_usage = round(float(latest_flow) - float(initial_val), 4)
             else:
-                usage_since_jan6 = ""
+                total_usage = ""
             rows.append([
                 name,
                 init.get("meter_number") or lat.get("meter_number", ""),
                 initial_val if initial_val is not None else "",
+                initial_date,
                 latest_flow if latest_flow is not None else "",
-                usage_since_jan6,
+                total_usage,
                 lat.get("date", ""),
             ])
 

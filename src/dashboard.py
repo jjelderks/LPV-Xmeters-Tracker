@@ -104,7 +104,7 @@ if st.button("🔄 Refresh data"):
 st.divider()
 
 # Detect usage column name dynamically
-usage_col = next((c for c in summary_df.columns if c.startswith("Total Usage Since")), None)
+usage_col = next((c for c in summary_df.columns if "Total Usage" in c), None)
 if usage_col is None:
     st.error("Could not find 'Total Usage Since' column in Summary sheet.")
     st.stop()
@@ -166,9 +166,7 @@ st.divider()
 # --- Summary table ---
 st.subheader("📋 Meter Summary")
 display_summary = summary_df.copy()
-# Detect initial reading column name regardless of year suffix
-initial_col = next((c for c in summary_df.columns if c.startswith("Initial Reading")), None)
-numeric_cols = [c for c in [initial_col, "Latest Total Flow (m³)", usage_col] if c and c in display_summary.columns]
+numeric_cols = [c for c in ["Initial Reading (m³)", "Latest Total Flow (m³)", usage_col] if c in display_summary.columns]
 for col in numeric_cols:
     display_summary[col] = pd.to_numeric(display_summary[col], errors="coerce")
 

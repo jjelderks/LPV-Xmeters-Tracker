@@ -12,29 +12,30 @@ BASE_URL = "https://xmeters.com"
 ORG_CODE = "1992894424495214594"
 TIMEZONE_OFFSET = "-05:00"
 
-# Initial readings from January 6th (fetched via browser on 2026-03-16)
-INITIAL_READINGS_JAN6 = {
-    "LPV Lot 01":          19.6297,
-    "LPV Lot 04":          34.3142,
-    "LPV Lot 05":          29.4009,
-    "LPV Lot 07":          14.9625,
-    "LPV Lot 08":          37.4405,
-    "LPV Lot 09":           6.0815,
-    "LPV Lot 14":          23.3791,
-    "LPV Lot 15":          47.8384,
-    "LPV Lot 22":          23.5722,
-    "LPV Lot 23":           3.9446,
-    "LPV Lot 24":          94.2641,
-    "LPV Lot 25":           5.3242,
-    "LPV Lot 26":           8.4518,
-    "LPV_Casita":          15.5487,
-    "Los_Tanques":          0.4368,
-    "S1(a) - Amit Magden": 44.4193,
-    "S1(b) - Amit Magden": 43.9134,
-    "S2 - Liron Casa":     24.3924,
-    "S3 - Liron rental":   29.3847,
-    "S9(a) - Oded duplex": 24.1759,
-    "S9(b) - Oded duplex":  3.7941,
+# Initial readings — date is the meter's baseline reading date
+# Format: name -> (reading_value, date_string)
+INITIAL_READINGS = {
+    "LPV Lot 01":          (19.6297,  "2026-01-06"),
+    "LPV Lot 04":          (34.3142,  "2026-01-06"),
+    "LPV Lot 05":          (29.4009,  "2026-01-06"),
+    "LPV Lot 07":          (14.9625,  "2026-01-06"),
+    "LPV Lot 08":          (37.4405,  "2026-01-06"),
+    "LPV Lot 09":          ( 6.0815,  "2026-01-06"),
+    "LPV Lot 14":          (23.3791,  "2026-01-06"),
+    "LPV Lot 15":          (47.8384,  "2026-01-06"),
+    "LPV Lot 22":          (23.5722,  "2026-01-06"),
+    "LPV Lot 23":          ( 3.9446,  "2026-01-06"),
+    "LPV Lot 24":          (94.2641,  "2026-01-06"),
+    "LPV Lot 25":          ( 5.3242,  "2026-01-06"),
+    "LPV Lot 26":          ( 8.4518,  "2026-01-06"),
+    "LPV_Casita":          (15.5487,  "2026-01-06"),
+    "Los_Tanques":         ( 0.4368,  "2026-01-06"),
+    "S1(a) - Amit Magden": (44.4193,  "2026-01-06"),
+    "S1(b) - Amit Magden": (43.9134,  "2026-01-06"),
+    "S2 - Liron Casa":     (24.3924,  "2026-01-06"),
+    "S3 - Liron rental":   (29.3847,  "2026-01-06"),
+    "S9(a) - Oded duplex": (24.1759,  "2026-01-06"),
+    "S9(b) - Oded duplex": ( 3.7941,  "2026-01-06"),
 }
 
 METERS = [
@@ -89,11 +90,17 @@ class MeterScraper:
         logger.info("Logged in to xmeters.com")
 
     def get_initial_readings(self) -> dict:
-        """Return Jan 6 initial readings (hardcoded from site, fetched 2026-03-16)."""
-        return {
-            name: {"meter_number": meter_id, "initial_reading": INITIAL_READINGS_JAN6.get(name)}
-            for name, meter_id in METERS
-        }
+        """Return initial readings (hardcoded, fetched 2026-03-16). Each entry includes reading, date, meter_number."""
+        result = {}
+        for name, meter_id in METERS:
+            entry = INITIAL_READINGS.get(name)
+            reading, reading_date = entry if entry else (None, None)
+            result[name] = {
+                "meter_number": meter_id,
+                "initial_reading": reading,
+                "initial_reading_date": reading_date,
+            }
+        return result
 
     def get_daily_readings(self, start_date: str, end_date: str) -> list[dict]:
         """
