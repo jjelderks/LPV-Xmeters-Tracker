@@ -97,3 +97,39 @@ class SheetsWriter:
         ]
         ws.update("A1", clean_rows)
         logger.info(f"Written {len(rows)-1} rows to 'Summary'.")
+
+    def log_spike(self, spike: dict):
+        """
+        Append a spike event to the 'Spike Log' tab.
+        Only adds new rows — never clears existing ones so notes are preserved.
+        spike keys: date, meter, usage, normal_avg, threshold
+        """
+        ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
+
+        # Write header if sheet is empty
+        existing = ws.get_all_values()
+        if not existing:
+            ws.append_row([
+                "Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
+                "Threshold (m³)", "Alerted", "Reason", "Resolved"
+            ])
+            existing = [True]  # mark as non-empty
+
+        # Check if this spike is already logged (same date + meter)
+        all_rows = ws.get_all_values()
+        for row in all_rows[1:]:
+            if len(row) >= 2 and row[0] == spike["date"] and row[1] == spike["meter"]:
+                logger.info(f"Spike already logged for {spike['meter']} on {spike['date']}, skipping.")
+                return
+
+        ws.append_row([
+            spike["date"],
+            spike["meter"],
+            round(spike["usage"], 4),
+            round(spike["normal_avg"], 4),
+            round(spike["threshold"], 4),
+            "Yes",
+            "",   # Reason — fill in manually
+            "No", # Resolved
+        ])
+        logger.info(f"Spike logged: {spike['meter']} on {spike['date']}")

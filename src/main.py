@@ -60,7 +60,7 @@ def run():
 
     # Check alerts and send WhatsApp notifications
     logger.info("Checking alerts...")
-    check_alerts(readings)
+    check_alerts(readings, sheets_writer=writer)
 
     logger.info("Done.")
 

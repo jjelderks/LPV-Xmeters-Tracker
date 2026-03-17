@@ -45,7 +45,7 @@ def clean_average(daily_usages: list[float]) -> float:
     return sum(normal) / len(normal) if normal else median
 
 
-def check_alerts(readings: list[dict]):
+def check_alerts(readings: list[dict], sheets_writer=None):
     """
     Send WhatsApp alert when today's usage exceeds 3x the meter's clean daily average.
     """
@@ -76,18 +76,29 @@ def check_alerts(readings: list[dict]):
         if yesterday_rows:
             usage = yesterday_rows[0]["daily_usage"]
             if usage > threshold:
-                spike_alerts.append(
-                    f"  • {name}: {usage:.2f} m³ "
-                    f"(normal avg {avg_daily:.2f} m³/day)"
-                )
+                spike_alerts.append({
+                    "meter": name,
+                    "usage": usage,
+                    "normal_avg": avg_daily,
+                    "threshold": threshold,
+                    "date": yesterday,
+                })
 
     if spike_alerts:
         msg = (
             "⚠️ LPV Water - SPIKE ALERT\n"
             f"High usage detected on {yesterday} (3x normal average):\n"
-            + "\n".join(spike_alerts)
+            + "\n".join(
+                f"  • {s['meter']}: {s['usage']:.2f} m³ (normal avg {s['normal_avg']:.2f} m³/day)"
+                for s in spike_alerts
+            )
         )
         send_whatsapp(msg)
         logger.info(f"Spike alerts sent for {len(spike_alerts)} meters.")
+
+        # Log each spike to the Spike Log sheet
+        if sheets_writer:
+            for spike in spike_alerts:
+                sheets_writer.log_spike(spike)
     else:
         logger.info("No spike alerts triggered.")

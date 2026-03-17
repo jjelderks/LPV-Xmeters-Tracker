@@ -69,11 +69,18 @@ def load_data():
     daily_df["Daily Usage (m³)"] = pd.to_numeric(daily_df["Daily Usage (m³)"], errors="coerce")
     daily_df["Total Flow (m³)"] = pd.to_numeric(daily_df["Total Flow (m³)"], errors="coerce")
 
-    return summary_df, daily_df
+    # Spike log
+    try:
+        spike_ws = spreadsheet.worksheet("Spike Log")
+        spike_df = pd.DataFrame(spike_ws.get_all_records())
+    except Exception:
+        spike_df = pd.DataFrame()
+
+    return summary_df, daily_df, spike_df
 
 # --- Load ---
 with st.spinner("Loading data..."):
-    summary_df, daily_df = load_data()
+    summary_df, daily_df, spike_df = load_data()
 
 # --- Header ---
 col_title, col_logo = st.columns([8, 1])
@@ -190,3 +197,19 @@ if alerts:
     st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
 else:
     st.success("No unusual usage detected.")
+
+st.divider()
+
+# --- Spike Log ---
+st.subheader("📋 Spike Log")
+st.caption("Automatically populated when alerts fire. Fill in Reason and Resolved directly in Google Sheets.")
+
+if not spike_df.empty:
+    st.dataframe(spike_df, use_container_width=True, hide_index=True)
+    st.markdown(
+        "✏️ To add notes, open the **Spike Log** tab in your "
+        "[Google Sheet](https://docs.google.com/spreadsheets/d/"
+        "1I14yVDrcpY6C2tABWDSxZ_MRjAyyFjjFKlrC2JBwh0g/edit) and fill in the Reason and Resolved columns."
+    )
+else:
+    st.info("No spikes logged yet.")
