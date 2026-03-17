@@ -124,20 +124,19 @@ all_meters = sorted(daily_df["Name"].unique())
 alerts = []
 for name in all_meters:
     meter_data = daily_df[daily_df["Name"] == name].copy()
-    avg = clean_avg(meter_data["Daily Usage (m³)"].tolist())
-    threshold = avg * 3
-    high_days = meter_data[
-        (meter_data["Daily Usage (m³)"] > threshold) &
-        (meter_data["Date"] >= SPIKE_DISPLAY_FROM)
-    ]
-    for _, row in high_days.iterrows():
-        alerts.append({
-            "Meter": name,
-            "Date": row["Date"].strftime("%Y-%m-%d"),
-            "Usage (m³)": round(row["Daily Usage (m³)"], 4),
-            "Clean Avg (m³)": round(avg, 4),
-            "Threshold (m³)": round(threshold, 4),
-        })
+    for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
+        # Exclude the day being checked from the baseline — same logic as notify.py
+        other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
+        avg = clean_avg(other_days)
+        threshold = avg * 3
+        if row["Daily Usage (m³)"] > threshold:
+            alerts.append({
+                "Meter": name,
+                "Date": row["Date"].strftime("%Y-%m-%d"),
+                "Usage (m³)": round(row["Daily Usage (m³)"], 4),
+                "Clean Avg (m³)": round(avg, 4),
+                "Threshold (m³)": round(threshold, 4),
+            })
 
 # --- KPI row ---
 col1, col2, col3, col4 = st.columns(4)
