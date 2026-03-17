@@ -44,7 +44,7 @@ class SheetsWriter:
     def write_summary(self, readings: list[dict], initials: dict):
         """
         Write a summary tab with one row per meter:
-        Name | Meter Number | Initial Reading (Jan 6) | Latest Total Flow | Total Usage Since Feb 28
+        Name | Meter Number | Initial Reading (Jan 6, 2026) | Latest Total Flow | Total Usage Since Feb 28
         """
         ws = self._get_or_create_worksheet("Summary")
         ws.clear()
@@ -64,9 +64,9 @@ class SheetsWriter:
 
         headers = [
             "Name", "Meter Number",
-            "Initial Reading (Jan 6)",
+            "Initial Reading (Jan 6, 2026)",
             "Latest Total Flow (m³)",
-            "Total Usage Since Jan 6 (m³)",
+            "Total Usage Since Jan 6, 2026 (m³)",
             "Last Updated",
         ]
 
