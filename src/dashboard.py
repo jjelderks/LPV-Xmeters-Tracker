@@ -166,15 +166,15 @@ st.divider()
 # --- Summary table ---
 st.subheader("📋 Meter Summary")
 display_summary = summary_df.copy()
-for col in ["Initial Reading (Jan 6, 2026)", "Latest Total Flow (m³)", usage_col]:
+# Detect initial reading column name regardless of year suffix
+initial_col = next((c for c in summary_df.columns if c.startswith("Initial Reading")), None)
+numeric_cols = [c for c in [initial_col, "Latest Total Flow (m³)", usage_col] if c and c in display_summary.columns]
+for col in numeric_cols:
     display_summary[col] = pd.to_numeric(display_summary[col], errors="coerce")
 
+fmt = {c: "{:.4f}" for c in numeric_cols}
 st.dataframe(
-    display_summary.style.format({
-        "Initial Reading (Jan 6, 2026)": "{:.4f}",
-        "Latest Total Flow (m³)": "{:.4f}",
-        usage_col: "{:.4f}",
-    }),
+    display_summary.style.format(fmt),
     use_container_width=True,
     hide_index=True,
 )
