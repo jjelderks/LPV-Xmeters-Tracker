@@ -41,9 +41,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-@st.cache_data(ttl=3600)
-def load_data():
-    # Cloud: use Streamlit secrets. Local: use credentials file.
+def _get_gspread_client():
     if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
         import json
         info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
@@ -55,7 +53,11 @@ def load_data():
         )
         sheet_id = os.environ["GOOGLE_SHEET_ID"]
     client = gspread.authorize(creds)
-    spreadsheet = client.open_by_key(sheet_id)
+    return client.open_by_key(sheet_id)
+
+@st.cache_data(ttl=3600)
+def load_data():
+    spreadsheet = _get_gspread_client()
 
     # Summary
     summary_ws = spreadsheet.worksheet("Summary")
@@ -69,22 +71,24 @@ def load_data():
     daily_df["Daily Usage (m³)"] = pd.to_numeric(daily_df["Daily Usage (m³)"], errors="coerce")
     daily_df["Total Flow (m³)"] = pd.to_numeric(daily_df["Total Flow (m³)"], errors="coerce")
 
-    # Spike log
+    return summary_df, daily_df
+
+@st.cache_data(ttl=60)
+def load_spike_log():
     try:
+        spreadsheet = _get_gspread_client()
         spike_ws = spreadsheet.worksheet("Spike Log")
         rows = spike_ws.get_all_values()
         if len(rows) > 1:
-            spike_df = pd.DataFrame(rows[1:], columns=rows[0])
-        else:
-            spike_df = pd.DataFrame()
+            return pd.DataFrame(rows[1:], columns=rows[0])
     except Exception:
-        spike_df = pd.DataFrame()
-
-    return summary_df, daily_df, spike_df
+        pass
+    return pd.DataFrame()
 
 # --- Load ---
 with st.spinner("Loading data..."):
-    summary_df, daily_df, spike_df = load_data()
+    summary_df, daily_df = load_data()
+    spike_df = load_spike_log()
 
 # --- Header ---
 col_title, col_logo = st.columns([8, 1])
@@ -93,7 +97,8 @@ col_logo.image(os.path.join(os.path.dirname(__file__), "../lomaslogo.png"), widt
 st.caption(f"Data from Feb 25 · Updates nightly · Last meter date: {daily_df['Date'].max().strftime('%Y-%m-%d')}")
 
 if st.button("🔄 Refresh data"):
-    st.cache_data.clear()
+    load_data.clear()
+    load_spike_log.clear()
     st.rerun()
 
 st.divider()
@@ -211,7 +216,11 @@ else:
 st.divider()
 
 # --- Spike Log ---
-st.subheader("📋 Spike Log")
+spike_col, spike_btn_col = st.columns([9, 1])
+spike_col.subheader("📋 Spike Log")
+if spike_btn_col.button("🔄 Refresh", key="refresh_spike"):
+    load_spike_log.clear()
+    spike_df = load_spike_log()
 st.caption("Automatically populated when alerts fire. Fill in Reason and Resolved directly in Google Sheets.")
 
 if not spike_df.empty:
