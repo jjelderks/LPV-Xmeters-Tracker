@@ -94,7 +94,7 @@ with st.spinner("Loading data..."):
 col_title, col_logo = st.columns([8, 1])
 col_title.title("💧 LPV Water Meter Dashboard")
 col_logo.image(os.path.join(os.path.dirname(__file__), "../lomaslogo.png"), width=80)
-st.caption(f"Data from Feb 25 · Updates nightly · Last meter date: {daily_df['Date'].max().strftime('%Y-%m-%d')}")
+st.caption(f"Data from Feb 25, 2026 · Updates nightly · Last meter date: {daily_df['Date'].max().strftime('%Y-%m-%d')}")
 
 if st.button("🔄 Refresh data"):
     load_data.clear()
@@ -182,7 +182,7 @@ st.dataframe(
 st.divider()
 
 # --- Bar chart: total usage per meter ---
-st.subheader("📊 Total Usage per Meter (since Feb 25)")
+st.subheader("📊 Total Usage per Meter (since Feb 25, 2026)")
 summary_sorted = display_summary.sort_values(usage_col, ascending=False)
 fig_bar = px.bar(
     summary_sorted,
