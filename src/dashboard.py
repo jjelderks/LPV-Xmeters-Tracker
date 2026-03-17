@@ -109,6 +109,36 @@ if usage_col is None:
     st.error("Could not find 'Total Usage Since' column in Summary sheet.")
     st.stop()
 
+# --- Compute spikes early so banner can use them ---
+def clean_avg(values):
+    vals = sorted([v for v in values if v > 0])
+    if not vals:
+        return 0
+    mid = vals[len(vals) // 2]
+    normal = [v for v in vals if v <= mid * 3]
+    return sum(normal) / len(normal) if normal else mid
+
+SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
+all_meters = sorted(daily_df["Name"].unique())
+
+alerts = []
+for name in all_meters:
+    meter_data = daily_df[daily_df["Name"] == name].copy()
+    avg = clean_avg(meter_data["Daily Usage (m³)"].tolist())
+    threshold = avg * 3
+    high_days = meter_data[
+        (meter_data["Daily Usage (m³)"] > threshold) &
+        (meter_data["Date"] >= SPIKE_DISPLAY_FROM)
+    ]
+    for _, row in high_days.iterrows():
+        alerts.append({
+            "Meter": name,
+            "Date": row["Date"].strftime("%Y-%m-%d"),
+            "Usage (m³)": round(row["Daily Usage (m³)"], 4),
+            "Clean Avg (m³)": round(avg, 4),
+            "Threshold (m³)": round(threshold, 4),
+        })
+
 # --- KPI row ---
 col1, col2, col3, col4 = st.columns(4)
 total_usage = pd.to_numeric(summary_df[usage_col], errors="coerce").sum()
@@ -118,6 +148,18 @@ top_user = summary_df.loc[pd.to_numeric(summary_df[usage_col], errors="coerce").
 col3.metric("Highest Usage", top_user)
 days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
 col4.metric("Days Tracked", days)
+
+# --- Spike banner ---
+if alerts:
+    alerts_df = pd.DataFrame(alerts)
+    # Most recent spike date per meter
+    latest_spikes = alerts_df.sort_values("Date").groupby("Meter").last().reset_index()
+    meter_list = ", ".join(latest_spikes["Meter"].tolist())
+    most_recent_date = alerts_df["Date"].max()
+    st.error(
+        f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}  \n"
+        "See the **Spike Alerts** and **Spike Log** sections below for details."
+    )
 
 st.divider()
 
@@ -158,7 +200,6 @@ st.divider()
 # --- Time series: daily usage ---
 st.subheader("📈 Daily Usage Over Time")
 
-all_meters = sorted(daily_df["Name"].unique())
 selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5])
 
 if selected:
@@ -178,35 +219,6 @@ st.divider()
 
 # --- High usage alerts ---
 st.subheader("⚠️ Spike Alerts (3x clean daily average)")
-
-def clean_avg(values):
-    vals = sorted([v for v in values if v > 0])
-    if not vals:
-        return 0
-    mid = vals[len(vals) // 2]
-    normal = [v for v in vals if v <= mid * 3]
-    return sum(normal) / len(normal) if normal else mid
-
-SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
-
-alerts = []
-for name in all_meters:
-    meter_data = daily_df[daily_df["Name"] == name].copy()
-    avg = clean_avg(meter_data["Daily Usage (m³)"].tolist())
-    threshold = avg * 3
-    # Use full history for baseline but only display from March 15
-    high_days = meter_data[
-        (meter_data["Daily Usage (m³)"] > threshold) &
-        (meter_data["Date"] >= SPIKE_DISPLAY_FROM)
-    ]
-    for _, row in high_days.iterrows():
-        alerts.append({
-            "Meter": name,
-            "Date": row["Date"].strftime("%Y-%m-%d"),
-            "Usage (m³)": round(row["Daily Usage (m³)"], 4),
-            "Clean Avg (m³)": round(avg, 4),
-            "Threshold (m³)": round(threshold, 4),
-        })
 
 if alerts:
     st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
