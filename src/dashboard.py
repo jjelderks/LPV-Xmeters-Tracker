@@ -148,18 +148,16 @@ col3.metric("Highest Usage", top_user)
 days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
 col4.metric("Days Tracked", days)
 
-# --- Spike banner — only show spikes from the last 2 days ---
+# --- Spike banner — only show spikes from the most recent spike date ---
 if alerts:
     alerts_df = pd.DataFrame(alerts)
-    cutoff = (daily_df["Date"].max() - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    recent_alerts = alerts_df[alerts_df["Date"] >= cutoff]
-    if not recent_alerts.empty:
-        meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
-        most_recent_date = recent_alerts["Date"].max()
-        st.error(
-            f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}  \n"
-            "See the **Spike Alerts** and **Spike Log** sections below for details."
-        )
+    most_recent_date = alerts_df["Date"].max()
+    recent_alerts = alerts_df[alerts_df["Date"] == most_recent_date]
+    meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
+    st.error(
+        f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}  \n"
+        "See the **Spike Alerts** and **Spike Log** sections below for details."
+    )
 
 st.divider()
 
