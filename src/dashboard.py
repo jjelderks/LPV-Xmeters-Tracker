@@ -178,12 +178,18 @@ def clean_avg(values):
     normal = [v for v in vals if v <= mid * 3]
     return sum(normal) / len(normal) if normal else mid
 
+SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
+
 alerts = []
 for name in all_meters:
     meter_data = daily_df[daily_df["Name"] == name].copy()
     avg = clean_avg(meter_data["Daily Usage (m³)"].tolist())
     threshold = avg * 3
-    high_days = meter_data[meter_data["Daily Usage (m³)"] > threshold]
+    # Use full history for baseline but only display from March 15
+    high_days = meter_data[
+        (meter_data["Daily Usage (m³)"] > threshold) &
+        (meter_data["Date"] >= SPIKE_DISPLAY_FROM)
+    ]
     for _, row in high_days.iterrows():
         alerts.append({
             "Meter": name,
