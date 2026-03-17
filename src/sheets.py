@@ -104,19 +104,19 @@ class SheetsWriter:
         Only adds new rows — never clears existing ones so notes are preserved.
         spike keys: date, meter, usage, normal_avg, threshold
         """
+        HEADERS = ["Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
+                   "Threshold (m³)", "Alerted", "Reason", "Resolved"]
+
         ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
-
-        # Write header if sheet is empty
-        existing = ws.get_all_values()
-        if not existing:
-            ws.append_row([
-                "Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
-                "Threshold (m³)", "Alerted", "Reason", "Resolved"
-            ])
-            existing = [True]  # mark as non-empty
-
-        # Check if this spike is already logged (same date + meter)
         all_rows = ws.get_all_values()
+
+        # Write header if first row doesn't match expected headers
+        if not all_rows or all_rows[0] != HEADERS:
+            ws.clear()
+            ws.append_row(HEADERS)
+            all_rows = [HEADERS]
+
+        # Skip if this spike is already logged (same date + meter)
         for row in all_rows[1:]:
             if len(row) >= 2 and row[0] == spike["date"] and row[1] == spike["meter"]:
                 logger.info(f"Spike already logged for {spike['meter']} on {spike['date']}, skipping.")
@@ -129,7 +129,7 @@ class SheetsWriter:
             round(spike["normal_avg"], 4),
             round(spike["threshold"], 4),
             "Yes",
-            "",   # Reason — fill in manually
-            "No", # Resolved
-        ])
+            "",
+            "No",
+        ], value_input_option="RAW")
         logger.info(f"Spike logged: {spike['meter']} on {spike['date']}")
