@@ -170,44 +170,12 @@ if alerts:
     meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
     st.error(
         f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}  \n"
-        "See the **Spike Alerts** and **Spike Log** sections below for details."
+        "See the **Spike Alert / High Use** and **Spike Log** sections below for details."
     )
 
 st.divider()
 
-# --- Summary table ---
-st.subheader("📋 Meter Summary")
-display_summary = summary_df.copy()
-numeric_cols = [c for c in ["Initial Reading (m³)", "Latest Total Flow (m³)", usage_col] if c in display_summary.columns]
-for col in numeric_cols:
-    display_summary[col] = pd.to_numeric(display_summary[col], errors="coerce")
-
-fmt = {c: "{:.4f}" for c in numeric_cols}
-st.dataframe(
-    display_summary.style.format(fmt),
-    use_container_width=True,
-    hide_index=True,
-)
-
-st.divider()
-
-# --- Bar chart: total usage per meter ---
-st.subheader("📊 Total Usage per Meter (since Feb 25, 2026)")
-summary_sorted = display_summary.sort_values(usage_col, ascending=False)
-fig_bar = px.bar(
-    summary_sorted,
-    x="Name",
-    y=usage_col,
-    color=usage_col,
-    color_continuous_scale="Blues",
-    labels={usage_col: "Total Usage (m³)"},
-)
-fig_bar.update_layout(xaxis_tickangle=-45, showlegend=False, coloraxis_showscale=False)
-st.plotly_chart(fig_bar, use_container_width=True)
-
-st.divider()
-
-# --- Latest day snapshot bar chart ---
+# --- 1. Latest day snapshot bar chart ---
 latest_date = daily_df["Date"].max()
 st.subheader(f"📊 Yesterday's Usage — {latest_date.strftime('%Y-%m-%d')}")
 
@@ -221,7 +189,6 @@ if selected_snapshot:
         (daily_df["Name"].isin(selected_snapshot))
     ].copy().sort_values("Daily Usage (m³)", ascending=False)
 
-    # Color red if over max daily OR over 3x average threshold
     alert_meters_today = {a["Meter"] for a in alerts if a["Date"] == latest_date.strftime("%Y-%m-%d")}
 
     def bar_color(row):
@@ -248,7 +215,7 @@ if selected_snapshot:
 
 st.divider()
 
-# --- Time series: daily usage ---
+# --- 2. Time series: daily usage ---
 st.subheader("📈 Daily Usage Over Time")
 
 selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
@@ -268,8 +235,40 @@ if selected:
 
 st.divider()
 
-# --- High usage alerts ---
-st.subheader("⚠️ Spike Alerts (3x clean daily average)")
+# --- 3. Bar chart: total usage per meter ---
+st.subheader("📊 Total Usage per Meter (since Feb 25, 2026)")
+display_summary = summary_df.copy()
+numeric_cols = [c for c in ["Initial Reading (m³)", "Latest Total Flow (m³)", usage_col] if c in display_summary.columns]
+for col in numeric_cols:
+    display_summary[col] = pd.to_numeric(display_summary[col], errors="coerce")
+
+summary_sorted = display_summary.sort_values(usage_col, ascending=False)
+fig_bar = px.bar(
+    summary_sorted,
+    x="Name",
+    y=usage_col,
+    color=usage_col,
+    color_continuous_scale="Blues",
+    labels={usage_col: "Total Usage (m³)"},
+)
+fig_bar.update_layout(xaxis_tickangle=-45, showlegend=False, coloraxis_showscale=False)
+st.plotly_chart(fig_bar, use_container_width=True)
+
+st.divider()
+
+# --- 4. Meter Summary table ---
+st.subheader("📋 Meter Summary")
+fmt = {c: "{:.4f}" for c in numeric_cols}
+st.dataframe(
+    display_summary.style.format(fmt),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.divider()
+
+# --- 5. Spike Alert / High Use ---
+st.subheader("⚠️ Spike Alert / High Use")
 
 if alerts:
     st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
@@ -278,7 +277,7 @@ else:
 
 st.divider()
 
-# --- Spike Log ---
+# --- 6. Spike Log ---
 spike_col, spike_btn_col = st.columns([9, 1])
 spike_col.subheader("📋 Spike Log")
 if spike_btn_col.button("🔄 Refresh", key="refresh_spike"):
