@@ -205,10 +205,37 @@ st.plotly_chart(fig_bar, use_container_width=True)
 
 st.divider()
 
+# --- Latest day snapshot bar chart ---
+latest_date = daily_df["Date"].max()
+st.subheader(f"📊 Yesterday's Usage — {latest_date.strftime('%Y-%m-%d')}")
+
+selected_snapshot = st.multiselect(
+    "Select meters", all_meters, default=all_meters, key="snapshot"
+)
+
+if selected_snapshot:
+    snapshot_df = daily_df[
+        (daily_df["Date"] == latest_date) &
+        (daily_df["Name"].isin(selected_snapshot))
+    ].sort_values("Daily Usage (m³)", ascending=False)
+
+    fig_snapshot = px.bar(
+        snapshot_df,
+        x="Name",
+        y="Daily Usage (m³)",
+        color="Daily Usage (m³)",
+        color_continuous_scale="Blues",
+        labels={"Daily Usage (m³)": "Usage (m³)"},
+    )
+    fig_snapshot.update_layout(xaxis_tickangle=-45, showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig_snapshot, use_container_width=True)
+
+st.divider()
+
 # --- Time series: daily usage ---
 st.subheader("📈 Daily Usage Over Time")
 
-selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5])
+selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
 
 if selected:
     filtered = daily_df[daily_df["Name"].isin(selected)]
