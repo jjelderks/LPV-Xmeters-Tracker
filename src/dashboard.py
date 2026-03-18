@@ -22,6 +22,15 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+    <style>
+    /* Multiselect selected tag background */
+    [data-baseweb="tag"] {
+        background-color: #4C7FAF !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 def check_password():
     if st.session_state.get("authenticated"):
         return True
