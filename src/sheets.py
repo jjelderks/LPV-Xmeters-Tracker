@@ -160,7 +160,7 @@ class SheetsWriter:
         spike keys: date, meter, usage, normal_avg, threshold
         """
         HEADERS = ["Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
-                   "Threshold (m³)", "Alerted", "Reason", "Resolved"]
+                   "Threshold (m³)", "Min Alert (m³)", "Alerted", "Reason", "Resolved"]
 
         ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
         all_rows = ws.get_all_values()
@@ -183,6 +183,7 @@ class SheetsWriter:
             round(spike["usage"], 4),
             round(spike["normal_avg"], 4),
             round(spike["threshold"], 4),
+            round(spike.get("min_alert", 0), 4) if spike.get("min_alert") else "",
             "Yes",
             "",
             "No",

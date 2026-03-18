@@ -79,7 +79,7 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             over_avg = usage > threshold and usage > min_alert
             over_max = max_daily > 0 and usage > max_daily
             if over_avg or over_max:
-                spike_alerts.append({
+                spike_alerts.append({"min_alert": min_alert,
                     "meter": name,
                     "usage": usage,
                     "normal_avg": avg_daily,
