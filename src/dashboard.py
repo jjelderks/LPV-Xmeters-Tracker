@@ -121,21 +121,33 @@ def clean_avg(values):
 SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
 all_meters = sorted(daily_df["Name"].unique())
 
+# Build min threshold lookup from Summary sheet
+min_thresh_col = "Min Alert (m³)"
+if min_thresh_col in summary_df.columns:
+    min_thresholds = {
+        row["Name"]: float(row[min_thresh_col]) if str(row[min_thresh_col]).strip() not in ("", "nan") else 0.0
+        for _, row in summary_df.iterrows()
+    }
+else:
+    min_thresholds = {}
+
 alerts = []
 for name in all_meters:
     meter_data = daily_df[daily_df["Name"] == name].copy()
+    min_alert = min_thresholds.get(name, 0.0)
     for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
         # Exclude the day being checked from the baseline — same logic as notify.py
         other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
         avg = clean_avg(other_days)
         threshold = avg * 3
-        if row["Daily Usage (m³)"] > threshold:
+        if row["Daily Usage (m³)"] > threshold and row["Daily Usage (m³)"] > min_alert:
             alerts.append({
                 "Meter": name,
                 "Date": row["Date"].strftime("%Y-%m-%d"),
                 "Usage (m³)": round(row["Daily Usage (m³)"], 4),
                 "Clean Avg (m³)": round(avg, 4),
                 "Threshold (m³)": round(threshold, 4),
+                "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
             })
 
 # --- KPI row ---

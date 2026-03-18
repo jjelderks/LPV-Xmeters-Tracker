@@ -54,13 +54,17 @@ def run():
         sheet_id=os.environ["GOOGLE_SHEET_ID"],
     )
 
+    # Read user-set min thresholds before rewriting summary
+    min_thresholds = writer.get_min_thresholds()
+    logger.info(f"Loaded min thresholds for {len(min_thresholds)} meters.")
+
     # Write daily readings tab
     writer.write_daily_readings(readings)
     writer.write_summary(readings, initials)
 
     # Check alerts and send WhatsApp notifications
     logger.info("Checking alerts...")
-    check_alerts(readings, sheets_writer=writer)
+    check_alerts(readings, sheets_writer=writer, min_thresholds=min_thresholds)
 
     logger.info("Done.")
 

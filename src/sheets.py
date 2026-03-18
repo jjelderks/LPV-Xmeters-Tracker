@@ -41,12 +41,41 @@ class SheetsWriter:
         ws.update("A1", rows)
         logger.info(f"Written {len(rows)-1} rows to 'Daily Readings'.")
 
+    def get_min_thresholds(self) -> dict:
+        """Read the Min Alert (m³) column from the Summary sheet. Returns {name: float}."""
+        try:
+            ws = self.spreadsheet.worksheet("Summary")
+            rows = ws.get_all_values()
+            if not rows:
+                return {}
+            headers = rows[0]
+            if "Min Alert (m³)" not in headers:
+                return {}
+            name_idx = headers.index("Name")
+            thresh_idx = headers.index("Min Alert (m³)")
+            result = {}
+            for row in rows[1:]:
+                if len(row) > max(name_idx, thresh_idx):
+                    name = row[name_idx]
+                    val = row[thresh_idx]
+                    try:
+                        result[name] = float(val) if val != "" else 0.0
+                    except ValueError:
+                        result[name] = 0.0
+            return result
+        except Exception:
+            return {}
+
     def write_summary(self, readings: list[dict], initials: dict):
         """
-        Write a summary tab with one row per meter:
-        Name | Meter Number | Initial Reading (Jan 6, 2026) | Latest Total Flow | Total Usage Since Feb 28
+        Write a summary tab with one row per meter.
+        Preserves existing Min Alert (m³) values set by the user.
         """
         ws = self._get_or_create_worksheet("Summary")
+
+        # Preserve user-set min thresholds before clearing
+        existing_thresholds = self.get_min_thresholds()
+
         ws.clear()
 
         # Get latest reading per meter
@@ -69,6 +98,7 @@ class SheetsWriter:
             "Latest Total Flow (m³)",
             "Total Usage Since Initial Reading (m³)",
             "Last Updated",
+            "Min Alert (m³)",
         ]
 
         rows = [headers]
@@ -83,6 +113,7 @@ class SheetsWriter:
                 total_usage = round(float(latest_flow) - float(initial_val), 4)
             else:
                 total_usage = ""
+            min_alert = existing_thresholds.get(name, "")
             rows.append([
                 name,
                 init.get("meter_number") or lat.get("meter_number", ""),
@@ -91,6 +122,7 @@ class SheetsWriter:
                 latest_flow if latest_flow is not None else "",
                 total_usage,
                 lat.get("date", ""),
+                min_alert,
             ])
 
         # Convert None to "" for clean sheet output
