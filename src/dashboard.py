@@ -232,22 +232,21 @@ if selected_snapshot:
         usage = row["Daily Usage (m³)"]
         name = row["Name"]
         max_daily = max_thresholds.get(name, 0.0)
-        if row["Name"] in alert_meters_today:
-            return "Alert"
+        if name in alert_meters_today:
+            return "#E8443A"
         if max_daily > 0 and usage > max_daily:
-            return "Alert"
-        return "Normal"
+            return "#E8443A"
+        return "#4C9BE8"
 
-    snapshot_df["Status"] = snapshot_df.apply(bar_color, axis=1)
+    colors = snapshot_df.apply(bar_color, axis=1).tolist()
 
     fig_snapshot = px.bar(
         snapshot_df,
         x="Name",
         y="Daily Usage (m³)",
-        color="Status",
-        color_discrete_map={"Normal": "#4C9BE8", "Alert": "#E8443A"},
         labels={"Daily Usage (m³)": "Usage (m³)"},
     )
+    fig_snapshot.update_traces(marker_color=colors)
     fig_snapshot.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_snapshot, use_container_width=True)
 
