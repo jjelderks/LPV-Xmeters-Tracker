@@ -111,12 +111,8 @@ if usage_col is None:
 
 # --- Compute spikes early so banner can use them ---
 def clean_avg(values):
-    vals = sorted([v for v in values if v > 0])
-    if not vals:
-        return 0
-    mid = vals[len(vals) // 2]
-    normal = [v for v in vals if v <= mid * 3]
-    return sum(normal) / len(normal) if normal else mid
+    non_zero = [v for v in values if v > 0]
+    return sum(non_zero) / len(non_zero) if non_zero else 0
 
 SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
 all_meters = sorted(daily_df["Name"].unique())

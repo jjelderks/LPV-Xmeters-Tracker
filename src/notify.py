@@ -32,17 +32,14 @@ def send_whatsapp(message: str):
 
 def clean_average(daily_usages: list[float]) -> float:
     """
-    Calculate average daily usage excluding spikes.
-    First pass: compute median-based average, then exclude values > 3x that average.
-    This ensures the baseline reflects normal usage only.
+    Calculate average daily usage from non-zero days only.
+    Zeros represent unoccupied days and are excluded from the baseline
+    so the threshold reflects actual usage when the property is in use.
     """
     if not daily_usages:
         return 0.0
-    sorted_vals = sorted(daily_usages)
-    mid = len(sorted_vals) // 2
-    median = sorted_vals[mid]
-    normal = [v for v in daily_usages if v <= median * 3]
-    return sum(normal) / len(normal) if normal else median
+    non_zero = [v for v in daily_usages if v > 0]
+    return sum(non_zero) / len(non_zero) if non_zero else 0.0
 
 
 def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
