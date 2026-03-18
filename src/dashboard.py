@@ -121,33 +121,39 @@ def clean_avg(values):
 SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
 all_meters = sorted(daily_df["Name"].unique())
 
-# Build min threshold lookup from Summary sheet
-min_thresh_col = "Min Alert (m³)"
-if min_thresh_col in summary_df.columns:
-    min_thresholds = {
-        row["Name"]: float(row[min_thresh_col]) if str(row[min_thresh_col]).strip() not in ("", "nan") else 0.0
-        for _, row in summary_df.iterrows()
+# Build threshold lookups from Summary sheet
+def _thresh_map(df, col):
+    if col not in df.columns:
+        return {}
+    return {
+        row["Name"]: float(row[col]) if str(row[col]).strip() not in ("", "nan") else 0.0
+        for _, row in df.iterrows()
     }
-else:
-    min_thresholds = {}
+
+min_thresholds = _thresh_map(summary_df, "Min Alert (m³)")
+max_thresholds = _thresh_map(summary_df, "Max Daily (m³)")
 
 alerts = []
 for name in all_meters:
     meter_data = daily_df[daily_df["Name"] == name].copy()
     min_alert = min_thresholds.get(name, 0.0)
+    max_daily = max_thresholds.get(name, 0.0)
     for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
-        # Exclude the day being checked from the baseline — same logic as notify.py
+        usage = row["Daily Usage (m³)"]
         other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
         avg = clean_avg(other_days)
         threshold = avg * 3
-        if row["Daily Usage (m³)"] > threshold and row["Daily Usage (m³)"] > min_alert:
+        over_avg = usage > threshold and usage > min_alert
+        over_max = max_daily > 0 and usage > max_daily
+        if over_avg or over_max:
             alerts.append({
                 "Meter": name,
                 "Date": row["Date"].strftime("%Y-%m-%d"),
-                "Usage (m³)": round(row["Daily Usage (m³)"], 4),
+                "Usage (m³)": round(usage, 4),
                 "Clean Avg (m³)": round(avg, 4),
                 "Threshold (m³)": round(threshold, 4),
                 "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
+                "Max Daily (m³)": round(max_daily, 4) if max_daily else "",
             })
 
 # --- KPI row ---
@@ -217,17 +223,32 @@ if selected_snapshot:
     snapshot_df = daily_df[
         (daily_df["Date"] == latest_date) &
         (daily_df["Name"].isin(selected_snapshot))
-    ].sort_values("Daily Usage (m³)", ascending=False)
+    ].copy().sort_values("Daily Usage (m³)", ascending=False)
+
+    # Color red if over max daily OR over 3x average threshold
+    alert_meters_today = {a["Meter"] for a in alerts if a["Date"] == latest_date.strftime("%Y-%m-%d")}
+
+    def bar_color(row):
+        usage = row["Daily Usage (m³)"]
+        name = row["Name"]
+        max_daily = max_thresholds.get(name, 0.0)
+        if row["Name"] in alert_meters_today:
+            return "Alert"
+        if max_daily > 0 and usage > max_daily:
+            return "Alert"
+        return "Normal"
+
+    snapshot_df["Status"] = snapshot_df.apply(bar_color, axis=1)
 
     fig_snapshot = px.bar(
         snapshot_df,
         x="Name",
         y="Daily Usage (m³)",
-        color="Daily Usage (m³)",
-        color_continuous_scale="Blues",
+        color="Status",
+        color_discrete_map={"Normal": "#4C9BE8", "Alert": "#E8443A"},
         labels={"Daily Usage (m³)": "Usage (m³)"},
     )
-    fig_snapshot.update_layout(xaxis_tickangle=-45, showlegend=False, coloraxis_showscale=False)
+    fig_snapshot.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig_snapshot, use_container_width=True)
 
 st.divider()

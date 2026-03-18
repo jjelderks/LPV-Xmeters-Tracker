@@ -41,23 +41,23 @@ class SheetsWriter:
         ws.update("A1", rows)
         logger.info(f"Written {len(rows)-1} rows to 'Daily Readings'.")
 
-    def get_min_thresholds(self) -> dict:
-        """Read the Min Alert (m³) column from the Summary sheet. Returns {name: float}."""
+    def _read_summary_column(self, col_name: str) -> dict:
+        """Read a named column from the Summary sheet. Returns {name: float}."""
         try:
             ws = self.spreadsheet.worksheet("Summary")
             rows = ws.get_all_values()
             if not rows:
                 return {}
             headers = rows[0]
-            if "Min Alert (m³)" not in headers:
+            if col_name not in headers:
                 return {}
             name_idx = headers.index("Name")
-            thresh_idx = headers.index("Min Alert (m³)")
+            col_idx = headers.index(col_name)
             result = {}
             for row in rows[1:]:
-                if len(row) > max(name_idx, thresh_idx):
+                if len(row) > max(name_idx, col_idx):
                     name = row[name_idx]
-                    val = row[thresh_idx]
+                    val = row[col_idx]
                     try:
                         result[name] = float(val) if val != "" else 0.0
                     except ValueError:
@@ -66,6 +66,12 @@ class SheetsWriter:
         except Exception:
             return {}
 
+    def get_min_thresholds(self) -> dict:
+        return self._read_summary_column("Min Alert (m³)")
+
+    def get_max_thresholds(self) -> dict:
+        return self._read_summary_column("Max Daily (m³)")
+
     def write_summary(self, readings: list[dict], initials: dict):
         """
         Write a summary tab with one row per meter.
@@ -73,8 +79,9 @@ class SheetsWriter:
         """
         ws = self._get_or_create_worksheet("Summary")
 
-        # Preserve user-set min thresholds before clearing
-        existing_thresholds = self.get_min_thresholds()
+        # Preserve user-set thresholds before clearing
+        existing_min = self.get_min_thresholds()
+        existing_max = self.get_max_thresholds()
 
         ws.clear()
 
@@ -99,6 +106,7 @@ class SheetsWriter:
             "Total Usage Since Initial Reading (m³)",
             "Last Updated",
             "Min Alert (m³)",
+            "Max Daily (m³)",
         ]
 
         rows = [headers]
@@ -113,7 +121,8 @@ class SheetsWriter:
                 total_usage = round(float(latest_flow) - float(initial_val), 4)
             else:
                 total_usage = ""
-            min_alert = existing_thresholds.get(name, "")
+            min_alert = existing_min.get(name, "")
+            max_daily = existing_max.get(name, "")
             rows.append([
                 name,
                 init.get("meter_number") or lat.get("meter_number", ""),
@@ -123,6 +132,7 @@ class SheetsWriter:
                 total_usage,
                 lat.get("date", ""),
                 min_alert,
+                max_daily,
             ])
 
         # Convert None to "" for clean sheet output

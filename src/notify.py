@@ -45,10 +45,11 @@ def clean_average(daily_usages: list[float]) -> float:
     return sum(normal) / len(normal) if normal else median
 
 
-def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None):
+def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
     """
-    Send WhatsApp alert when today's usage exceeds 3x the meter's clean daily average
-    AND exceeds the meter's minimum alert threshold (if set).
+    Send WhatsApp alert when either:
+    - Usage > 3x clean average AND > min alert threshold (if set), OR
+    - Usage > max daily threshold (unconditional, if set)
     """
     from collections import defaultdict
     from datetime import date, timedelta
@@ -77,7 +78,10 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
         if yesterday_rows:
             usage = yesterday_rows[0]["daily_usage"]
             min_alert = (min_thresholds or {}).get(name, 0.0)
-            if usage > threshold and usage > min_alert:
+            max_daily = (max_thresholds or {}).get(name, 0.0)
+            over_avg = usage > threshold and usage > min_alert
+            over_max = max_daily > 0 and usage > max_daily
+            if over_avg or over_max:
                 spike_alerts.append({
                     "meter": name,
                     "usage": usage,
