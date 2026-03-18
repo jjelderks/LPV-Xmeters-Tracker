@@ -75,13 +75,15 @@ class SheetsWriter:
     def write_summary(self, readings: list[dict], initials: dict):
         """
         Write a summary tab with one row per meter.
-        Preserves existing Min Alert (m³) values set by the user.
+        Preserves Bedrooms and Min Alert values set by the user.
+        Max Daily is a formula driven by the Bedrooms column.
+        Columns: A=Name B=Meter C=Initial D=InitDate E=LatestFlow F=TotalUsage G=LastUpdated H=MinAlert I=Bedrooms J=MaxDaily
         """
         ws = self._get_or_create_worksheet("Summary")
 
-        # Preserve user-set thresholds before clearing
+        # Preserve user-set values before clearing
         existing_min = self.get_min_thresholds()
-        existing_max = self.get_max_thresholds()
+        existing_bedrooms = self._read_summary_column("Bedrooms")
 
         ws.clear()
 
@@ -92,7 +94,7 @@ class SheetsWriter:
             if name not in latest or r["date"] > latest[name]["date"]:
                 latest[name] = r
 
-        # Get total usage per meter (sum of daily_usage from Feb 28)
+        # Get total usage per meter
         total_usage = {}
         for r in readings:
             name = r["name"]
@@ -106,41 +108,49 @@ class SheetsWriter:
             "Total Usage Since Initial Reading (m³)",
             "Last Updated",
             "Min Alert (m³)",
+            "Bedrooms",
             "Max Daily (m³)",
         ]
 
         rows = [headers]
         all_names = sorted(set([r["name"] for r in readings] + list(initials.keys())))
-        for name in all_names:
+        for i, name in enumerate(all_names):
+            row_num = i + 2  # Row 1 is header, data starts at row 2
             init = initials.get(name, {})
             lat = latest.get(name, {})
             initial_val = init.get("initial_reading")
             initial_date = init.get("initial_reading_date", "")
             latest_flow = lat.get("total_flow")
             if initial_val is not None and latest_flow is not None:
-                total_usage = round(float(latest_flow) - float(initial_val), 4)
+                usage_since = round(float(latest_flow) - float(initial_val), 4)
             else:
-                total_usage = ""
+                usage_since = ""
             min_alert = existing_min.get(name, "")
-            max_daily = existing_max.get(name, "")
+            bedrooms = existing_bedrooms.get(name, "")
+            # Formula: Studio(0)=1.0, 1bed=1.5, 2bed=2.5, 3bed=4.0, 4+bed=5.0
+            max_formula = (
+                f'=IF(I{row_num}="","",IF(I{row_num}=0,1.0,IF(I{row_num}=1,1.5,'
+                f'IF(I{row_num}=2,2.5,IF(I{row_num}=3,4.0,5.0)))))'
+            )
             rows.append([
                 name,
                 init.get("meter_number") or lat.get("meter_number", ""),
                 initial_val if initial_val is not None else "",
                 initial_date,
                 latest_flow if latest_flow is not None else "",
-                total_usage,
+                usage_since,
                 lat.get("date", ""),
                 min_alert,
-                max_daily,
+                bedrooms,
+                max_formula,
             ])
 
-        # Convert None to "" for clean sheet output
+        # Use USER_ENTERED so formulas in Max Daily column are evaluated
         clean_rows = [
             [("" if v is None else v) for v in row]
             for row in rows
         ]
-        ws.update("A1", clean_rows)
+        ws.update("A1", clean_rows, value_input_option="USER_ENTERED")
         logger.info(f"Written {len(rows)-1} rows to 'Summary'.")
 
     def log_spike(self, spike: dict):
