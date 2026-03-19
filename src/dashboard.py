@@ -172,7 +172,8 @@ if alerts:
     st.error(
         f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}"
     )
-    st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+    last_2_dates = sorted(alerts_df["Date"].unique())[-2:]
+    st.dataframe(alerts_df[alerts_df["Date"].isin(last_2_dates)], use_container_width=True, hide_index=True)
 else:
     st.success("No unusual usage detected.")
 
