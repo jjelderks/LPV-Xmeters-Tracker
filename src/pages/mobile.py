@@ -158,10 +158,10 @@ logo_path = os.path.join(os.path.dirname(__file__), "../../lomaslogo.png")
 with open(logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
 st.markdown(
-    f"<div style='display:flex; align-items:center; justify-content:space-between;'>"
-    f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>"
+    f"<div style='text-align:center; margin-bottom:8px;'>"
     f"<img src='data:image/png;base64,{_logo_b64}' style='width:50px; height:auto;'>"
-    f"</div>",
+    f"</div>"
+    f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>",
     unsafe_allow_html=True,
 )
 st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
