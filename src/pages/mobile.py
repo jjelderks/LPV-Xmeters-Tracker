@@ -262,11 +262,7 @@ else:
 st.divider()
 
 # --- 6. Spike Log ---
-spike_col, spike_btn_col = st.columns([4, 1])
-spike_col.subheader("📋 Spike Log")
-if spike_btn_col.button("🔄", key="refresh_spike"):
-    load_spike_log.clear()
-    spike_df = load_spike_log()
+st.subheader("📋 Spike Log")
 
 if not spike_df.empty:
     st.dataframe(spike_df, use_container_width=True, hide_index=True)

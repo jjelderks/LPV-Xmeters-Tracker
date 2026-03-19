@@ -284,11 +284,7 @@ st.dataframe(
 st.divider()
 
 # --- 6. Spike Log ---
-spike_col, spike_btn_col = st.columns([9, 1])
-spike_col.subheader("📋 Spike Log")
-if spike_btn_col.button("🔄 Refresh", key="refresh_spike"):
-    load_spike_log.clear()
-    spike_df = load_spike_log()
+st.subheader("📋 Spike Log")
 st.caption("Automatically populated when alerts fire. Fill in Reason and Resolved directly in Google Sheets.")
 
 if not spike_df.empty:
