@@ -153,14 +153,17 @@ for name in all_meters:
             })
 
 # --- Header: title + logo ---
+import base64
 logo_path = os.path.join(os.path.dirname(__file__), "../../lomaslogo.png")
-col_title, col_logo = st.columns([5, 1])
-col_title.markdown(
-    "<h2 style='text-align:left; font-size:1.4rem; margin-top:0;'>"
-    "💧 LPV Water Meter Dashboard</h2>",
+with open(logo_path, "rb") as _f:
+    _logo_b64 = base64.b64encode(_f.read()).decode()
+st.markdown(
+    f"<div style='display:flex; align-items:center; justify-content:space-between;'>"
+    f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>"
+    f"<img src='data:image/png;base64,{_logo_b64}' style='width:50px; height:auto;'>"
+    f"</div>",
     unsafe_allow_html=True,
 )
-col_logo.image(logo_path, width=50)
 st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
            unsafe_allow_html=True)
 
