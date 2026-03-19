@@ -24,18 +24,34 @@ st.set_page_config(
 st.markdown("""
     <style>
     [data-baseweb="tag"] { background-color: #4C7FAF !important; }
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+    .block-container { padding-top: 0.5rem; padding-bottom: 1rem; }
+
+    /* Prevent plotly charts from capturing scroll on mobile */
+    .js-plotly-plot .plotly { touch-action: pan-y !important; }
+
+    /* Shrink "Daily Usage Over Time" subheader to fit one line */
+    h3 { font-size: 1.1rem !important; }
     </style>
 """, unsafe_allow_html=True)
+
+MOBILE_CHART_CONFIG = {
+    "scrollZoom": False,
+    "displayModeBar": False,
+    "staticPlot": False,
+}
 
 
 def check_password():
     if st.session_state.get("authenticated"):
         return True
+    st.markdown(
+        "<div style='text-align:center'><img src='app/static/lomaslogo.png' width='100'></div>",
+        unsafe_allow_html=True,
+    )
     st.title("💧 LPV Water Meters")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
-    if st.button("Login"):
+    if st.button("Login", use_container_width=True):
         valid_user = st.secrets.get("USERNAME", os.environ.get("DASH_USERNAME", "LPV_medidores"))
         valid_pass = st.secrets.get("PASSWORD", os.environ.get("DASH_PASSWORD", "agua"))
         if username == valid_user and password == valid_pass:
@@ -94,17 +110,7 @@ with st.spinner("Loading..."):
     summary_df, daily_df = load_data()
     spike_df = load_spike_log()
 
-# --- Header ---
-st.title("💧 LPV Water Meters")
 latest_date = daily_df["Date"].max()
-st.caption(f"Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly")
-
-if st.button("🔄 Refresh"):
-    load_data.clear()
-    load_spike_log.clear()
-    st.rerun()
-
-st.divider()
 
 # --- Threshold lookups ---
 def _thresh_map(df, col):
@@ -146,7 +152,27 @@ for name in all_meters:
                 "Threshold (m³)": round(threshold, 4),
             })
 
-# --- Spike banner ---
+# --- Header: logo + title ---
+logo_path = os.path.join(os.path.dirname(__file__), "../../lomaslogo.png")
+col_l, col_logo, col_r = st.columns([1, 2, 1])
+col_logo.image(logo_path, use_container_width=True)
+
+st.markdown(
+    "<h2 style='text-align:center; font-size:1.4rem; margin-top:0;'>"
+    "💧 LPV Water<br>Meter Dashboard</h2>",
+    unsafe_allow_html=True,
+)
+st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
+           unsafe_allow_html=True)
+
+if st.button("🔄 Refresh", use_container_width=True):
+    load_data.clear()
+    load_spike_log.clear()
+    st.rerun()
+
+st.divider()
+
+# --- 1. Spike banner ---
 if alerts:
     alerts_df = pd.DataFrame(alerts)
     most_recent_date = alerts_df["Date"].max()
@@ -154,11 +180,24 @@ if alerts:
     meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
     st.error(
         f"⚠️ **Spike alert — {most_recent_date}:**\n\n{meter_list}\n\n"
-        "See Spike Alert / High Use below for details."
+        "See Spike Alert / High Use below."
     )
-    st.divider()
 
-# --- Yesterday's usage bar chart ---
+# --- 2. General info ---
+usage_col = next((c for c in summary_df.columns if "Total Usage" in c), None)
+if usage_col:
+    total_usage = pd.to_numeric(summary_df[usage_col], errors="coerce").sum()
+    c1, c2 = st.columns(2)
+    c1.metric("Total Usage", f"{total_usage:.1f} m³")
+    c2.metric("Active Meters", len(summary_df))
+    c3, c4 = st.columns(2)
+    c3.metric("Last Reading", latest_date.strftime("%Y-%m-%d"))
+    days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
+    c4.metric("Days Tracked", days)
+
+st.divider()
+
+# --- 3. Yesterday's usage bar chart ---
 st.subheader(f"📊 Yesterday — {latest_date.strftime('%Y-%m-%d')}")
 
 snapshot_df = daily_df[daily_df["Date"] == latest_date].copy().sort_values("Daily Usage (m³)", ascending=False)
@@ -173,23 +212,48 @@ def bar_color(row):
     return "#4C9BE8"
 
 colors = snapshot_df.apply(bar_color, axis=1).tolist()
-fig = px.bar(
+fig_snap = px.bar(
     snapshot_df,
     x="Name",
     y="Daily Usage (m³)",
     labels={"Daily Usage (m³)": "Usage (m³)"},
 )
-fig.update_traces(marker_color=colors)
-fig.update_layout(
+fig_snap.update_traces(marker_color=colors)
+fig_snap.update_layout(
     xaxis_tickangle=-60,
-    height=350,
-    margin=dict(l=10, r=10, t=10, b=10),
+    height=320,
+    margin=dict(l=5, r=5, t=10, b=5),
+    dragmode=False,
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_snap, use_container_width=True, config=MOBILE_CHART_CONFIG)
 
 st.divider()
 
-# --- Spike Alert / High Use ---
+# --- 4. Daily Usage Over Time ---
+st.subheader("📈 Daily Usage Over Time")
+default_meters = all_meters[:5]
+selected = st.multiselect("Select meters", all_meters, default=default_meters)
+if selected:
+    filtered = daily_df[daily_df["Name"].isin(selected)]
+    fig_line = px.line(
+        filtered,
+        x="Date",
+        y="Daily Usage (m³)",
+        color="Name",
+        markers=True,
+    )
+    fig_line.update_layout(
+        height=300,
+        margin=dict(l=5, r=5, t=10, b=5),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=-0.4),
+        dragmode=False,
+    )
+    st.plotly_chart(fig_line, use_container_width=True, config=MOBILE_CHART_CONFIG)
+
+st.divider()
+
+# --- 5. Spike Alert / High Use ---
 st.subheader("⚠️ Spike Alert / High Use")
 if alerts:
     st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
@@ -198,10 +262,10 @@ else:
 
 st.divider()
 
-# --- Spike Log ---
+# --- 6. Spike Log ---
 spike_col, spike_btn_col = st.columns([4, 1])
 spike_col.subheader("📋 Spike Log")
-if spike_btn_col.button("🔄 Refresh", key="refresh_spike"):
+if spike_btn_col.button("🔄", key="refresh_spike"):
     load_spike_log.clear()
     spike_df = load_spike_log()
 
