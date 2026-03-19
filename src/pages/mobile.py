@@ -158,10 +158,10 @@ logo_path = os.path.join(os.path.dirname(__file__), "../../quick-export.png")
 with open(logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
 st.markdown(
-    f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>",
+    f"<h2 style='text-align:center; font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>"
+    f"<p style='text-align:center; color:gray; font-size:0.8rem;'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</p>",
     unsafe_allow_html=True,
 )
-st.caption(f"Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly")
 
 st.divider()
 
