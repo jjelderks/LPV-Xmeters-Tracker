@@ -134,10 +134,9 @@ class SheetsWriter:
                 # Utility meter, studio, or manual override — preserve the fixed value
                 max_daily_cell = manual_max
             else:
-                # Formula: 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
+                # Formula: 1bed=1.2, 2+bed = bedrooms×1.0 (scales to any size)
                 max_daily_cell = (
-                    f'=IF(I{row_num}="","",IF(I{row_num}<=1,1.2,'
-                    f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0))))'
+                    f'=IF(I{row_num}="","",IF(I{row_num}<=1,1.2,I{row_num}*1.0))'
                 )
             rows.append([
                 name,
