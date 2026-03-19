@@ -75,8 +75,8 @@ class SheetsWriter:
     def write_summary(self, readings: list[dict], initials: dict):
         """
         Write a summary tab with one row per meter.
-        Preserves Bedrooms and Min Alert values set by the user.
-        Max Daily is a formula driven by the Bedrooms column.
+        Preserves Bedrooms, Min Alert, and Max Daily values set by the user.
+        Max Daily uses formula if blank, but manual override is preserved.
         Columns: A=Name B=Meter C=Initial D=InitDate E=LatestFlow F=TotalUsage G=LastUpdated H=MinAlert I=Bedrooms J=MaxDaily
         """
         ws = self._get_or_create_worksheet("Summary")
@@ -84,6 +84,7 @@ class SheetsWriter:
         # Preserve user-set values before clearing
         existing_min = self.get_min_thresholds()
         existing_bedrooms = self._read_summary_column("Bedrooms")
+        existing_max = self.get_max_thresholds()
 
         ws.clear()
 
@@ -127,11 +128,17 @@ class SheetsWriter:
                 usage_since = ""
             min_alert = existing_min.get(name, "")
             bedrooms = existing_bedrooms.get(name, "")
-            # Formula: Studio(0)=0.8, 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
-            max_formula = (
-                f'=IF(I{row_num}="","",IF(I{row_num}=0,0.8,IF(I{row_num}=1,1.2,'
-                f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0)))))'
-            )
+            # Use manual Max Daily override if set, otherwise formula based on bedrooms
+            manual_max = existing_max.get(name, 0.0)
+            if manual_max > 0 and bedrooms == "":
+                # Utility meter or manual override — preserve the fixed value
+                max_daily_cell = manual_max
+            else:
+                # Formula: Studio(0)=0.8, 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
+                max_daily_cell = (
+                    f'=IF(I{row_num}="","",IF(I{row_num}=0,0.8,IF(I{row_num}=1,1.2,'
+                    f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0)))))'
+                )
             rows.append([
                 name,
                 init.get("meter_number") or lat.get("meter_number", ""),
@@ -142,7 +149,7 @@ class SheetsWriter:
                 lat.get("date", ""),
                 min_alert,
                 bedrooms,
-                max_formula,
+                max_daily_cell,
             ])
 
         # Use USER_ENTERED so formulas in Max Daily column are evaluated
