@@ -48,7 +48,7 @@ def check_password():
         "<div style='text-align:center'><img src='app/static/lomaslogo.png' width='100'></div>",
         unsafe_allow_html=True,
     )
-    st.title("💧 LPV Water Meters")
+    st.markdown("<h2 style='font-size:1.3rem; margin:0;'>💧 LPV Water Meters</h2>", unsafe_allow_html=True)
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login", use_container_width=True):
@@ -282,13 +282,13 @@ else:
     st.info("No spikes logged yet.")
 
 st.divider()
+if st.button("🔄 Refresh all data", use_container_width=True):
+    load_data.clear()
+    load_spike_log.clear()
+    st.rerun()
 st.markdown(
     f"<div style='text-align:center; padding:12px 0;'>"
     f"<img src='data:image/png;base64,{_logo_b64}' style='width:63px; height:auto;'>"
     f"</div>",
     unsafe_allow_html=True,
 )
-if st.button("🔄 Refresh all data", use_container_width=True):
-    load_data.clear()
-    load_spike_log.clear()
-    st.rerun()

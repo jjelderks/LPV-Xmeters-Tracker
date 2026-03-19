@@ -296,14 +296,13 @@ import base64
 _logo_path = os.path.join(os.path.dirname(__file__), "../quick-export.png")
 with open(_logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
+if st.button("🔄 Refresh data", use_container_width=True):
+    load_data.clear()
+    load_spike_log.clear()
+    st.rerun()
 st.markdown(
     f"<div style='text-align:center; padding:16px 0;'>"
     f"<img src='data:image/png;base64,{_logo_b64}' style='width:80px; height:auto;'>"
     f"</div>",
     unsafe_allow_html=True,
 )
-
-if st.button("🔄 Refresh data", use_container_width=True):
-    load_data.clear()
-    load_spike_log.clear()
-    st.rerun()
