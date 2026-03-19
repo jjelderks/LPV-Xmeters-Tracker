@@ -7,27 +7,27 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-# Recipients - phone: api_key
-RECIPIENTS = {
-    "50769276717": "4221726",
-}
+# Recipients: phone, api_key, meters (None = all meters)
+RECIPIENTS = [
+    {"phone": "50769276717", "apikey": "4221726", "meters": None},
+    {"phone": "972528022021", "apikey": "123123", "meters": ["S2 - Liron Casa", "S3 - Liron rental"]},
+]
 
 
-def send_whatsapp(message: str):
-    """Send a WhatsApp message to all recipients."""
-    for phone, apikey in RECIPIENTS.items():
-        try:
-            url = (
-                f"https://api.callmebot.com/whatsapp.php"
-                f"?phone={phone}&text={quote(message)}&apikey={apikey}"
-            )
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                logger.info(f"WhatsApp sent to {phone}")
-            else:
-                logger.warning(f"WhatsApp failed for {phone}: {resp.status_code} {resp.text[:100]}")
-        except Exception as e:
-            logger.error(f"WhatsApp error for {phone}: {e}")
+def send_whatsapp(message: str, phone: str, apikey: str):
+    """Send a WhatsApp message to a single recipient."""
+    try:
+        url = (
+            f"https://api.callmebot.com/whatsapp.php"
+            f"?phone={phone}&text={quote(message)}&apikey={apikey}"
+        )
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            logger.info(f"WhatsApp sent to {phone}")
+        else:
+            logger.warning(f"WhatsApp failed for {phone}: {resp.status_code} {resp.text[:100]}")
+    except Exception as e:
+        logger.error(f"WhatsApp error for {phone}: {e}")
 
 
 def clean_average(daily_usages: list[float]) -> float:
@@ -88,15 +88,21 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
                 })
 
     if spike_alerts:
-        msg = (
-            "⚠️ LPV Water - SPIKE ALERT\n"
-            f"High usage detected on {yesterday} (3x normal average):\n"
-            + "\n".join(
-                f"  • {s['meter']}: {s['usage']:.2f} m³ (normal avg {s['normal_avg']:.2f} m³/day)"
-                for s in spike_alerts
-            )
-        )
-        send_whatsapp(msg)
+        for recipient in RECIPIENTS:
+            filtered = [
+                s for s in spike_alerts
+                if recipient["meters"] is None or s["meter"] in recipient["meters"]
+            ]
+            if filtered:
+                msg = (
+                    "⚠️ LPV Water - SPIKE ALERT\n"
+                    f"High usage detected on {yesterday} (3x normal average):\n"
+                    + "\n".join(
+                        f"  • {s['meter']}: {s['usage']:.2f} m³ (normal avg {s['normal_avg']:.2f} m³/day)"
+                        for s in filtered
+                    )
+                )
+                send_whatsapp(msg, recipient["phone"], recipient["apikey"])
         logger.info(f"Spike alerts sent for {len(spike_alerts)} meters.")
 
         # Log each spike to the Spike Log sheet
