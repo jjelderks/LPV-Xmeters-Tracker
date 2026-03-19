@@ -130,14 +130,14 @@ class SheetsWriter:
             bedrooms = existing_bedrooms.get(name, "")
             # Use manual Max Daily override if set, otherwise formula based on bedrooms
             manual_max = existing_max.get(name, 0.0)
-            if manual_max > 0 and bedrooms == "":
-                # Utility meter or manual override — preserve the fixed value
+            if manual_max > 0 and bedrooms in ("", "0", 0):
+                # Utility meter, studio, or manual override — preserve the fixed value
                 max_daily_cell = manual_max
             else:
-                # Formula: Studio(0)=0.8, 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
+                # Formula: 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
                 max_daily_cell = (
-                    f'=IF(I{row_num}="","",IF(I{row_num}=0,0.8,IF(I{row_num}=1,1.2,'
-                    f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0)))))'
+                    f'=IF(I{row_num}="","",IF(I{row_num}<=1,1.2,'
+                    f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0))))'
                 )
             rows.append([
                 name,
