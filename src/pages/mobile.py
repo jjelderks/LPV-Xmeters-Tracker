@@ -255,7 +255,9 @@ st.divider()
 # --- 5. Spike Alert / High Use ---
 st.subheader("⚠️ Spike Alert / High Use")
 if alerts:
-    st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
+    alerts_df = pd.DataFrame(alerts)
+    last_2_dates = sorted(alerts_df["Date"].unique())[-2:]
+    st.dataframe(alerts_df[alerts_df["Date"].isin(last_2_dates)], use_container_width=True, hide_index=True)
 else:
     st.success("No unusual usage detected.")
 
