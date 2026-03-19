@@ -158,8 +158,8 @@ col_l, col_logo, col_r = st.columns([2, 1, 2])
 col_logo.image(logo_path, use_container_width=True)
 
 st.markdown(
-    "<h2 style='text-align:center; font-size:1.4rem; margin-top:0;'>"
-    "💧 LPV Water<br>Meter Dashboard</h2>",
+    "<h2 style='text-align:left; font-size:1.4rem; margin-top:0;'>"
+    "💧 LPV Water Meter Dashboard</h2>",
     unsafe_allow_html=True,
 )
 st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
