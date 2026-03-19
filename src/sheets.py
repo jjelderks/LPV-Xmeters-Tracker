@@ -66,6 +66,26 @@ class SheetsWriter:
         except Exception:
             return {}
 
+    def _read_summary_column_str(self, col_name: str) -> dict:
+        """Read a named column from the Summary sheet as strings. Returns {name: str}."""
+        try:
+            ws = self.spreadsheet.worksheet("Summary")
+            rows = ws.get_all_values()
+            if not rows:
+                return {}
+            headers = rows[0]
+            if col_name not in headers:
+                return {}
+            name_idx = headers.index("Name")
+            col_idx = headers.index(col_name)
+            return {
+                row[name_idx]: row[col_idx]
+                for row in rows[1:]
+                if len(row) > max(name_idx, col_idx)
+            }
+        except Exception:
+            return {}
+
     def get_min_thresholds(self) -> dict:
         return self._read_summary_column("Min Alert (m³)")
 
@@ -85,6 +105,7 @@ class SheetsWriter:
         existing_min = self.get_min_thresholds()
         existing_bedrooms = self._read_summary_column("Bedrooms")
         existing_max = self.get_max_thresholds()
+        existing_notes = self._read_summary_column_str("Notes")
 
         ws.clear()
 
@@ -111,6 +132,7 @@ class SheetsWriter:
             "Min Alert (m³)",
             "Bedrooms",
             "Max Daily (m³)",
+            "Notes",
         ]
 
         rows = [headers]
@@ -149,6 +171,7 @@ class SheetsWriter:
                 min_alert,
                 bedrooms,
                 max_daily_cell,
+                existing_notes.get(name, ""),
             ])
 
         # Use USER_ENTERED so formulas in Max Daily column are evaluated
