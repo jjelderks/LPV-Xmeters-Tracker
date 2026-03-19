@@ -161,6 +161,23 @@ for name in all_meters:
                 "Max Daily (m³)": round(max_daily, 4) if max_daily else "",
             })
 
+# --- 1. Spike Alert / High Use ---
+st.subheader("⚠️ Spike Alert / High Use")
+
+if alerts:
+    alerts_df = pd.DataFrame(alerts)
+    most_recent_date = alerts_df["Date"].max()
+    recent_alerts = alerts_df[alerts_df["Date"] == most_recent_date]
+    meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
+    st.error(
+        f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}"
+    )
+    st.dataframe(alerts_df, use_container_width=True, hide_index=True)
+else:
+    st.success("No unusual usage detected.")
+
+st.divider()
+
 # --- KPI row ---
 col1, col2, col3, col4 = st.columns(4)
 total_usage = pd.to_numeric(summary_df[usage_col], errors="coerce").sum()
@@ -171,20 +188,9 @@ col3.metric("Highest Usage", top_user)
 days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
 col4.metric("Days Tracked", days)
 
-# --- Spike banner — only show spikes from the most recent spike date ---
-if alerts:
-    alerts_df = pd.DataFrame(alerts)
-    most_recent_date = alerts_df["Date"].max()
-    recent_alerts = alerts_df[alerts_df["Date"] == most_recent_date]
-    meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
-    st.error(
-        f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}  \n"
-        "See the **Spike Alert / High Use** and **Spike Log** sections below for details."
-    )
-
 st.divider()
 
-# --- 1. Latest day snapshot bar chart ---
+# --- 2. Latest day snapshot bar chart ---
 latest_date = daily_df["Date"].max()
 st.subheader(f"📊 Yesterday's Usage — {latest_date.strftime('%Y-%m-%d')}")
 
@@ -224,7 +230,7 @@ if selected_snapshot:
 
 st.divider()
 
-# --- 2. Time series: daily usage ---
+# --- 3. Time series: daily usage ---
 st.subheader("📈 Daily Usage Over Time")
 
 selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
@@ -244,7 +250,7 @@ if selected:
 
 st.divider()
 
-# --- 3. Bar chart: total usage per meter ---
+# --- 4. Bar chart: total usage per meter ---
 st.subheader("📊 Total Usage per Meter (since Feb 25, 2026)")
 display_summary = summary_df.copy()
 numeric_cols = [c for c in ["Initial Reading (m³)", "Latest Total Flow (m³)", usage_col] if c in display_summary.columns]
@@ -265,7 +271,7 @@ st.plotly_chart(fig_bar, use_container_width=True)
 
 st.divider()
 
-# --- 4. Meter Summary table ---
+# --- 5. Meter Summary table ---
 st.subheader("📋 Meter Summary")
 fmt = {c: "{:.4f}" for c in numeric_cols}
 st.dataframe(
@@ -273,16 +279,6 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
 )
-
-st.divider()
-
-# --- 5. Spike Alert / High Use ---
-st.subheader("⚠️ Spike Alert / High Use")
-
-if alerts:
-    st.dataframe(pd.DataFrame(alerts), use_container_width=True, hide_index=True)
-else:
-    st.success("No unusual usage detected.")
 
 st.divider()
 
