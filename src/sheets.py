@@ -127,10 +127,10 @@ class SheetsWriter:
                 usage_since = ""
             min_alert = existing_min.get(name, "")
             bedrooms = existing_bedrooms.get(name, "")
-            # Formula: Studio(0)=1.0, 1bed=1.5, 2bed=2.5, 3bed=4.0, 4+bed=5.0
+            # Formula: Studio(0)=0.8, 1bed=1.2, 2bed=2.0, 3bed=3.0, 4+bed=4.0
             max_formula = (
-                f'=IF(I{row_num}="","",IF(I{row_num}=0,1.0,IF(I{row_num}=1,1.5,'
-                f'IF(I{row_num}=2,2.5,IF(I{row_num}=3,4.0,5.0)))))'
+                f'=IF(I{row_num}="","",IF(I{row_num}=0,0.8,IF(I{row_num}=1,1.2,'
+                f'IF(I{row_num}=2,2.0,IF(I{row_num}=3,3.0,4.0)))))'
             )
             rows.append([
                 name,
