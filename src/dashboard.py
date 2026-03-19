@@ -193,7 +193,7 @@ st.divider()
 
 # --- 2. Latest day snapshot bar chart ---
 latest_date = daily_df["Date"].max()
-st.subheader(f"📊 Yesterday's Usage — {latest_date.strftime('%Y-%m-%d')}")
+st.subheader(f"📊 Daily Snapshot — {latest_date.strftime('%Y-%m-%d')}")
 
 selected_snapshot = st.multiselect(
     "Select meters", all_meters, default=all_meters, key="snapshot"

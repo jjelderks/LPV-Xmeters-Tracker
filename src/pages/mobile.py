@@ -198,7 +198,7 @@ if usage_col:
 st.divider()
 
 # --- 3. Yesterday's usage bar chart ---
-st.subheader(f"📊 Yesterday — {latest_date.strftime('%Y-%m-%d')}")
+st.subheader(f"📊 Daily Snapshot — {latest_date.strftime('%Y-%m-%d')}")
 
 snapshot_df = daily_df[daily_df["Date"] == latest_date].copy().sort_values("Daily Usage (m³)", ascending=False)
 alert_meters_today = {a["Meter"] for a in alerts if a["Date"] == latest_date.strftime("%Y-%m-%d")}
