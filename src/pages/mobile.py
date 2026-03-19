@@ -186,13 +186,27 @@ st.divider()
 usage_col = next((c for c in summary_df.columns if "Total Usage" in c), None)
 if usage_col:
     total_usage = pd.to_numeric(summary_df[usage_col], errors="coerce").sum()
-    c1, c2 = st.columns(2)
-    c1.metric("Total Usage", f"{total_usage:.1f} m³")
-    c2.metric("Active Meters", len(summary_df))
-    c3, c4 = st.columns(2)
-    c3.metric("Last Reading", latest_date.strftime("%Y-%m-%d"))
     days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
-    c4.metric("Days Tracked", days)
+    st.markdown(f"""
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+        <div style="background:#1e1e2e; border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:#aaa;">Total Usage</div>
+            <div style="font-size:1.2rem; font-weight:bold;">{total_usage:.1f} m³</div>
+        </div>
+        <div style="background:#1e1e2e; border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:#aaa;">Active Meters</div>
+            <div style="font-size:1.2rem; font-weight:bold;">{len(summary_df)}</div>
+        </div>
+        <div style="background:#1e1e2e; border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:#aaa;">Last Reading</div>
+            <div style="font-size:1.2rem; font-weight:bold;">{latest_date.strftime('%Y-%m-%d')}</div>
+        </div>
+        <div style="background:#1e1e2e; border-radius:8px; padding:12px;">
+            <div style="font-size:0.75rem; color:#aaa;">Days Tracked</div>
+            <div style="font-size:1.2rem; font-weight:bold;">{days}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.divider()
 
