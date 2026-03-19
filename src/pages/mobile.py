@@ -44,11 +44,15 @@ MOBILE_CHART_CONFIG = {
 def check_password():
     if st.session_state.get("authenticated"):
         return True
+    _lp = os.path.join(os.path.dirname(__file__), "../../quick-export.png")
+    with open(_lp, "rb") as _f:
+        _lb64 = base64.b64encode(_f.read()).decode()
     st.markdown(
-        "<div style='text-align:center'><img src='app/static/lomaslogo.png' width='100'></div>",
+        f"<div style='text-align:center; margin-bottom:12px;'>"
+        f"<img src='data:image/png;base64,{_lb64}' style='width:80px; height:auto;'></div>"
+        f"<h2 style='text-align:center; font-size:1.3rem; margin:0;'>💧 LPV Water Meters</h2>",
         unsafe_allow_html=True,
     )
-    st.markdown("<h2 style='font-size:1.3rem; margin:0;'>💧 LPV Water Meters</h2>", unsafe_allow_html=True)
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login", use_container_width=True):
