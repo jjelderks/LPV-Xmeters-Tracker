@@ -154,7 +154,7 @@ for name in all_meters:
 
 # --- Header: logo + title ---
 logo_path = os.path.join(os.path.dirname(__file__), "../../lomaslogo.png")
-col_l, col_logo, col_r = st.columns([2, 1, 2])
+col_l, col_logo, col_r = st.columns([4, 1, 4])
 col_logo.image(logo_path, use_container_width=True)
 
 st.markdown(
