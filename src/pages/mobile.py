@@ -152,12 +152,15 @@ for name in all_meters:
                 "Threshold (m³)": round(threshold, 4),
             })
 
-# --- Header: title ---
-st.markdown(
+# --- Header: title + logo ---
+logo_path = os.path.join(os.path.dirname(__file__), "../../lomaslogo.png")
+col_title, col_logo = st.columns([5, 1])
+col_title.markdown(
     "<h2 style='text-align:left; font-size:1.4rem; margin-top:0;'>"
     "💧 LPV Water Meter Dashboard</h2>",
     unsafe_allow_html=True,
 )
+col_logo.image(logo_path, width=50)
 st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
            unsafe_allow_html=True)
 
