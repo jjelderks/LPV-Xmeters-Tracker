@@ -24,7 +24,7 @@ st.set_page_config(
 st.markdown("""
     <style>
     [data-baseweb="tag"] { background-color: #4C7FAF !important; }
-    .block-container { padding-top: 0.5rem; padding-bottom: 1rem; }
+    .block-container { padding-top: 3rem; padding-bottom: 1rem; }
 
     /* Prevent plotly charts from capturing scroll on mobile */
     .js-plotly-plot .plotly { touch-action: pan-y !important; }
