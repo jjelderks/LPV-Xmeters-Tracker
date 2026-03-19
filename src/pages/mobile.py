@@ -167,11 +167,6 @@ st.markdown(
 st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
            unsafe_allow_html=True)
 
-if st.button("🔄 Refresh", use_container_width=True):
-    load_data.clear()
-    load_spike_log.clear()
-    st.rerun()
-
 st.divider()
 
 # --- 1. Spike banner ---
@@ -277,3 +272,9 @@ if not spike_df.empty:
     st.dataframe(spike_df, use_container_width=True, hide_index=True)
 else:
     st.info("No spikes logged yet.")
+
+st.divider()
+if st.button("🔄 Refresh all data", use_container_width=True):
+    load_data.clear()
+    load_spike_log.clear()
+    st.rerun()
