@@ -159,7 +159,7 @@ with open(logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
 st.markdown(
     f"<div style='text-align:center; margin-bottom:8px;'>"
-    f"<img src='data:image/png;base64,{_logo_b64}' style='width:50px; height:auto;'>"
+    f"<img src='data:image/png;base64,{_logo_b64}' style='width:63px; height:auto;'>"
     f"</div>"
     f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>",
     unsafe_allow_html=True,
