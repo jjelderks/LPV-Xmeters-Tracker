@@ -183,6 +183,8 @@ if alerts:
         "See Spike Alert / High Use below."
     )
 
+st.divider()
+
 # --- 2. General info ---
 usage_col = next((c for c in summary_df.columns if "Total Usage" in c), None)
 if usage_col:
