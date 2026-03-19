@@ -100,15 +100,8 @@ with st.spinner("Loading data..."):
     spike_df = load_spike_log()
 
 # --- Header ---
-col_title, col_logo = st.columns([8, 1])
-col_title.title("💧 LPV Water Meter Dashboard")
-col_logo.image(os.path.join(os.path.dirname(__file__), "../quick-export.png"), width=80)
-st.caption(f"Data from Feb 25, 2026 · Updates nightly · Last meter date: {daily_df['Date'].max().strftime('%Y-%m-%d')}")
-
-if st.button("🔄 Refresh data"):
-    load_data.clear()
-    load_spike_log.clear()
-    st.rerun()
+st.markdown("<h1 style='text-align:center;'>💧 LPV Water Meter Dashboard</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align:center; color:gray;'>Data from Feb 25, 2026 · Updates nightly · Last meter date: {daily_df['Date'].max().strftime('%Y-%m-%d')}</p>", unsafe_allow_html=True)
 
 st.divider()
 
@@ -296,3 +289,21 @@ if not spike_df.empty:
     )
 else:
     st.info("No spikes logged yet.")
+
+st.divider()
+
+import base64
+_logo_path = os.path.join(os.path.dirname(__file__), "../quick-export.png")
+with open(_logo_path, "rb") as _f:
+    _logo_b64 = base64.b64encode(_f.read()).decode()
+st.markdown(
+    f"<div style='text-align:center; padding:16px 0;'>"
+    f"<img src='data:image/png;base64,{_logo_b64}' style='width:80px; height:auto;'>"
+    f"</div>",
+    unsafe_allow_html=True,
+)
+
+if st.button("🔄 Refresh data", use_container_width=True):
+    load_data.clear()
+    load_spike_log.clear()
+    st.rerun()

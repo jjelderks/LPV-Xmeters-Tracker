@@ -152,20 +152,16 @@ for name in all_meters:
                 "Threshold (m³)": round(threshold, 4),
             })
 
-# --- Header: title + logo ---
+# --- Header: title ---
 import base64
 logo_path = os.path.join(os.path.dirname(__file__), "../../quick-export.png")
 with open(logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
 st.markdown(
-    f"<div style='text-align:center; margin-bottom:8px;'>"
-    f"<img src='data:image/png;base64,{_logo_b64}' style='width:63px; height:auto;'>"
-    f"</div>"
     f"<h2 style='font-size:1.4rem; margin:0;'>💧 LPV Water Meter Dashboard</h2>",
     unsafe_allow_html=True,
 )
-st.caption(f"<div style='text-align:center'>Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly</div>",
-           unsafe_allow_html=True)
+st.caption(f"Latest data: {latest_date.strftime('%Y-%m-%d')} · Updates nightly")
 
 st.divider()
 
@@ -286,6 +282,12 @@ else:
     st.info("No spikes logged yet.")
 
 st.divider()
+st.markdown(
+    f"<div style='text-align:center; padding:12px 0;'>"
+    f"<img src='data:image/png;base64,{_logo_b64}' style='width:63px; height:auto;'>"
+    f"</div>",
+    unsafe_allow_html=True,
+)
 if st.button("🔄 Refresh all data", use_container_width=True):
     load_data.clear()
     load_spike_log.clear()
