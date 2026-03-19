@@ -165,11 +165,20 @@ class SheetsWriter:
         ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
         all_rows = ws.get_all_values()
 
-        # Write header if first row doesn't match expected headers
-        if not all_rows or all_rows[0] != HEADERS:
-            ws.clear()
-            ws.append_row(HEADERS)
+        # If sheet is empty, write headers
+        if not all_rows:
+            ws.append_row(HEADERS, value_input_option="RAW")
             all_rows = [HEADERS]
+        # If headers are outdated, add any missing columns without clearing data
+        elif all_rows[0] != HEADERS:
+            existing_headers = all_rows[0]
+            missing = [h for h in HEADERS if h not in existing_headers]
+            if missing:
+                # Append missing headers to the right of existing ones
+                new_header_row = existing_headers + missing
+                ws.update("A1", [new_header_row], value_input_option="RAW")
+                all_rows[0] = new_header_row
+                logger.info(f"Added missing Spike Log columns: {missing}")
 
         # Skip if this spike is already logged (same date + meter)
         for row in all_rows[1:]:
