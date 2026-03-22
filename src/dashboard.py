@@ -342,6 +342,10 @@ if usage_col_val:
         use_container_width=True,
         hide_index=True,
     )
+    st.markdown(
+        "📋 [View full Variable Costs ledger](https://docs.google.com/spreadsheets/d/"
+        "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc/edit)"
+    )
 
 st.divider()
 
