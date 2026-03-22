@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "../config/.env"))
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+BILLING_SHEET_ID = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"
 
 st.set_page_config(
     page_title="LPV Water Meters",
@@ -82,6 +83,25 @@ def load_data():
 
     return summary_df, daily_df
 
+@st.cache_data(ttl=3600)
+def load_variable_costs_total():
+    try:
+        if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
+            import json
+            info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+            creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+        else:
+            creds = Credentials.from_service_account_file(
+                os.environ["GOOGLE_CREDENTIALS_FILE"], scopes=SCOPES
+            )
+        client = gspread.authorize(creds)
+        billing_sheet = client.open_by_key(BILLING_SHEET_ID)
+        ws = billing_sheet.worksheet("Variable Costs")
+        val = ws.acell("E2").value
+        return float(str(val).replace(",", "").replace("$", "")) if val else 0.0
+    except Exception:
+        return 0.0
+
 @st.cache_data(ttl=60)
 def load_spike_log():
     try:
@@ -98,6 +118,7 @@ def load_spike_log():
 with st.spinner("Loading data..."):
     summary_df, daily_df = load_data()
     spike_df = load_spike_log()
+    variable_costs_total = load_variable_costs_total()
 
 # --- Header ---
 st.markdown("<h1 style='text-align:center;'>💧 LPV Water Meter Dashboard</h1>", unsafe_allow_html=True)
@@ -292,6 +313,31 @@ else:
 
 st.divider()
 
+# --- 7. Variable Cost Estimate ---
+st.subheader("💰 Variable Cost Estimate (since Jan 6, 2026)")
+st.caption(f"Based on each meter's % of total system usage × current variable costs running total: **${variable_costs_total:,.2f}**")
+
+usage_col_val = next((c for c in summary_df.columns if "Total Usage" in c), None)
+if usage_col_val:
+    billing_df = summary_df[["Name", "Meter Number", usage_col_val]].copy()
+    billing_df[usage_col_val] = pd.to_numeric(billing_df[usage_col_val], errors="coerce")
+    total_system_usage = billing_df[usage_col_val].sum()
+    billing_df["% of Total Usage"] = (billing_df[usage_col_val] / total_system_usage * 100).round(2)
+    billing_df["Est. Variable Cost ($)"] = (billing_df[usage_col_val] / total_system_usage * variable_costs_total).round(2)
+    billing_df = billing_df.rename(columns={usage_col_val: "Usage Since Jan 6 (m³)"})
+    billing_df = billing_df.sort_values("Usage Since Jan 6 (m³)", ascending=False)
+    st.dataframe(
+        billing_df.style.format({
+            "Usage Since Jan 6 (m³)": "{:.4f}",
+            "% of Total Usage": "{:.2f}%",
+            "Est. Variable Cost ($)": "${:.2f}",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.divider()
+
 import base64
 _logo_path = os.path.join(os.path.dirname(__file__), "../quick-export.png")
 with open(_logo_path, "rb") as _f:
@@ -299,6 +345,7 @@ with open(_logo_path, "rb") as _f:
 if st.button("🔄 Refresh data", use_container_width=True):
     load_data.clear()
     load_spike_log.clear()
+    load_variable_costs_total.clear()
     st.rerun()
 st.markdown(
     f"<div style='text-align:center; padding:16px 0;'>"
