@@ -322,7 +322,7 @@ st.divider()
 
 # --- 7. Variable Cost Estimate ---
 st.subheader("💰 Variable Cost Estimate (since Jan 6, 2026)")
-st.caption(f"Based on each meter's % of total system usage × current variable costs running total: **${variable_costs_total:,.2f}**")
+st.caption(f"Based on each meter's % of total system usage × current variable costs running total: **${variable_costs_total:,.2f}** as of {pd.Timestamp.now().strftime('%Y-%m-%d')}")
 
 usage_col_val = next((c for c in summary_df.columns if "Total Usage" in c), None)
 if usage_col_val:
