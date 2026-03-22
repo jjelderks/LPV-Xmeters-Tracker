@@ -97,8 +97,15 @@ def load_variable_costs_total():
         client = gspread.authorize(creds)
         billing_sheet = client.open_by_key(BILLING_SHEET_ID)
         ws = billing_sheet.worksheet("Variable Costs")
-        val = ws.acell("E2").value
-        return float(str(val).replace(",", "").replace("$", "")) if val else 0.0
+        rows = ws.get_all_values()
+        total = 0.0
+        for row in rows[1:]:  # skip header
+            if len(row) >= 4 and row[3].strip():
+                try:
+                    total += float(row[3].replace(",", "").replace("$", ""))
+                except ValueError:
+                    pass
+        return total
     except Exception:
         return 0.0
 
