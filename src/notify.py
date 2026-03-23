@@ -79,12 +79,19 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             over_avg = usage > threshold and usage > min_alert
             over_max = max_daily > 0 and usage > max_daily
             if over_avg or over_max:
+                if over_avg and over_max:
+                    trigger = "3x average + max daily exceeded"
+                elif over_max:
+                    trigger = f"max daily limit exceeded ({max_daily:.2f} m³)"
+                else:
+                    trigger = "3x normal average"
                 spike_alerts.append({
                     "meter": name,
                     "usage": usage,
                     "normal_avg": avg_daily,
                     "threshold": threshold,
                     "date": yesterday,
+                    "trigger": trigger,
                 })
 
     if spike_alerts:
@@ -95,10 +102,10 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             ]
             if filtered:
                 msg = (
-                    "⚠️ LPV Water - SPIKE ALERT\n"
-                    f"High usage detected on {yesterday} (3x normal average):\n"
+                    "⚠️ LPV Water - HIGH USAGE ALERT\n"
+                    f"Unusual usage detected on {yesterday}:\n"
                     + "\n".join(
-                        f"  • {s['meter']}: {s['usage']:.2f} m³ (normal avg {s['normal_avg']:.2f} m³/day)"
+                        f"  • {s['meter']}: {s['usage']:.2f} m³ ({s['trigger']})"
                         for s in filtered
                     )
                 )
