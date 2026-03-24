@@ -102,10 +102,10 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             ]
             if filtered:
                 from datetime import datetime, timedelta
-                period_end = (datetime.strptime(yesterday, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                period_start = (datetime.strptime(yesterday, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
                 msg = (
                     "⚠️ LPV Water - HIGH USAGE ALERT\n"
-                    f"Period: {yesterday} ~16:30 → {period_end} ~16:30\n"
+                    f"Period: {period_start} ~16:30 → {yesterday} ~16:30\n"
                     + "\n".join(
                         f"  • {s['meter']}: {s['usage']:.2f} m³ ({s['trigger']})"
                         for s in filtered

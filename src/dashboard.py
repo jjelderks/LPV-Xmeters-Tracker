@@ -212,9 +212,9 @@ with tab_usage:
 
     # --- Daily Snapshot ---
     latest_date = daily_df["Date"].max()
-    next_date = latest_date + pd.Timedelta(days=1)
+    prev_date = latest_date - pd.Timedelta(days=1)
     st.subheader(f"📊 Daily Snapshot — {latest_date.strftime('%Y-%m-%d')}")
-    st.caption(f"Period: {latest_date.strftime('%Y-%m-%d')} ~16:30 → {next_date.strftime('%Y-%m-%d')} ~16:30")
+    st.caption(f"Period: {prev_date.strftime('%Y-%m-%d')} ~16:30 → {latest_date.strftime('%Y-%m-%d')} ~16:30")
     selected_snapshot = st.multiselect("Select meters", all_meters, default=all_meters, key="snapshot")
     if selected_snapshot:
         snapshot_df = daily_df[
