@@ -212,7 +212,9 @@ with tab_usage:
 
     # --- Daily Snapshot ---
     latest_date = daily_df["Date"].max()
+    next_date = latest_date + pd.Timedelta(days=1)
     st.subheader(f"📊 Daily Snapshot — {latest_date.strftime('%Y-%m-%d')}")
+    st.caption(f"Period: {latest_date.strftime('%Y-%m-%d')} ~16:30 → {next_date.strftime('%Y-%m-%d')} ~16:30")
     selected_snapshot = st.multiselect("Select meters", all_meters, default=all_meters, key="snapshot")
     if selected_snapshot:
         snapshot_df = daily_df[
@@ -246,6 +248,7 @@ with tab_usage:
 
     # --- Daily Usage Over Time ---
     st.subheader("📈 Daily Usage Over Time")
+    st.caption("Each date represents the 24-hour period starting ~16:30 on that date.")
     selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
     if selected:
         filtered = daily_df[daily_df["Name"].isin(selected)]
