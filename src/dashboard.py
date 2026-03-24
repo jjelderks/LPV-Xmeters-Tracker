@@ -250,7 +250,7 @@ with tab_usage:
     # --- Daily Usage Over Time ---
     st.subheader("📈 Daily Usage Over Time")
     st.caption("Each date is the end of the 24-hour reading period (previous day ~16:30 → that date ~16:30).")
-    selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
+    selected = st.multiselect("Select meters to display", all_meters, default=all_meters, key="timeseries")
     if selected:
         filtered = daily_df[daily_df["Name"].isin(selected)]
         fig_line = px.line(
