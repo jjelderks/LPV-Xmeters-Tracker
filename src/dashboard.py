@@ -188,9 +188,10 @@ with tab_usage:
     if alerts:
         alerts_df = pd.DataFrame(alerts)
         most_recent_date = alerts_df["Date"].max()
+        most_recent_prev = (pd.Timestamp(most_recent_date) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         recent_alerts = alerts_df[alerts_df["Date"] == most_recent_date]
         meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
-        st.error(f"⚠️ **Spike alert — {most_recent_date}:** {meter_list}")
+        st.error(f"⚠️ **Spike alert — period {most_recent_prev} ~16:30 → {most_recent_date} ~16:30:** {meter_list}")
         last_2_dates = sorted(alerts_df["Date"].unique())[-2:]
         st.dataframe(alerts_df[alerts_df["Date"].isin(last_2_dates)], use_container_width=True, hide_index=True)
     else:
@@ -248,7 +249,7 @@ with tab_usage:
 
     # --- Daily Usage Over Time ---
     st.subheader("📈 Daily Usage Over Time")
-    st.caption("Each date represents the 24-hour period starting ~16:30 on that date.")
+    st.caption("Each date is the end of the 24-hour reading period (previous day ~16:30 → that date ~16:30).")
     selected = st.multiselect("Select meters to display", all_meters, default=all_meters[:5], key="timeseries")
     if selected:
         filtered = daily_df[daily_df["Name"].isin(selected)]
