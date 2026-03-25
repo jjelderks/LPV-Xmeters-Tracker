@@ -132,8 +132,13 @@ all_meters = sorted(daily_df["Name"].unique())
 
 # --- Spike alert computation ---
 def clean_avg(values):
+    import statistics
     non_zero = [v for v in values if v > 0]
-    return sum(non_zero) / len(non_zero) if non_zero else 0
+    if not non_zero:
+        return 0
+    median = statistics.median(non_zero)
+    filtered = [v for v in non_zero if v <= median * 2.5]
+    return sum(filtered) / len(filtered) if filtered else sum(non_zero) / len(non_zero)
 
 SPIKE_DISPLAY_FROM = pd.Timestamp("2026-03-15")
 alerts = []
@@ -145,7 +150,7 @@ for name in all_meters:
         usage = row["Daily Usage (m³)"]
         other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
         avg = clean_avg(other_days)
-        threshold = avg * 3
+        threshold = avg * 2.5
         over_avg = usage > threshold and usage > min_alert
         over_max = max_daily > 0 and usage > max_daily
         if over_avg or over_max:

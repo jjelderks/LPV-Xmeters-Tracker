@@ -32,14 +32,19 @@ def send_whatsapp(message: str, phone: str, apikey: str):
 
 def clean_average(daily_usages: list[float]) -> float:
     """
-    Calculate average daily usage from non-zero days only.
-    Zeros represent unoccupied days and are excluded from the baseline
-    so the threshold reflects actual usage when the property is in use.
+    Calculate average daily usage from non-zero days, excluding spike days.
+    Zeros (unoccupied days) are excluded first, then days above 2.5x the
+    median are excluded to prevent past spikes from inflating the baseline.
     """
     if not daily_usages:
         return 0.0
     non_zero = [v for v in daily_usages if v > 0]
-    return sum(non_zero) / len(non_zero) if non_zero else 0.0
+    if not non_zero:
+        return 0.0
+    import statistics
+    median = statistics.median(non_zero)
+    filtered = [v for v in non_zero if v <= median * 2.5]
+    return sum(filtered) / len(filtered) if filtered else sum(non_zero) / len(non_zero)
 
 
 def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
@@ -68,7 +73,7 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             continue
 
         avg_daily = clean_average(historical)
-        threshold = avg_daily * 3
+        threshold = avg_daily * 2.5
 
         # Check yesterday's reading against the clean average
         yesterday_rows = [r for r in rows if r["date"] == yesterday]
