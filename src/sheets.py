@@ -188,7 +188,7 @@ class SheetsWriter:
         Only adds new rows — never clears existing ones so notes are preserved.
         spike keys: date, meter, usage, normal_avg, threshold
         """
-        HEADERS = ["Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
+        HEADERS = ["Date", "Meter", "Usage (m³)", "Clean Mean (m³)",
                    "Threshold (m³)", "Alerted", "Reason", "Resolved"]
 
         ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)

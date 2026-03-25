@@ -174,7 +174,7 @@ for name in all_meters:
                 "Meter": name,
                 "Date": row["Date"].strftime("%Y-%m-%d"),
                 "Usage (m³)": round(usage, 4),
-                "Clean Avg (m³)": round(avg, 4),
+                "Clean Mean (m³)": round(avg, 4),
                 "Threshold (m³)": round(threshold, 4),
                 "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
                 "Max Daily (m³)": round(max_daily, 4) if max_daily else "",

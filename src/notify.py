@@ -50,7 +50,7 @@ def clean_average(daily_usages: list[float]) -> float:
 def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
     """
     Send WhatsApp alert when either:
-    - Usage > 3x clean average AND > min alert threshold (if set), OR
+    - Usage > 2.5x clean mean AND > min alert threshold (if set), OR
     - Usage > max daily threshold (unconditional, if set)
     """
     from collections import defaultdict
@@ -75,7 +75,7 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
         avg_daily = clean_average(historical)
         threshold = avg_daily * 2.5
 
-        # Check yesterday's reading against the clean average
+        # Check yesterday's reading against the clean mean
         yesterday_rows = [r for r in rows if r["date"] == yesterday]
         if yesterday_rows:
             usage = yesterday_rows[0]["daily_usage"]
