@@ -4,6 +4,7 @@ Simplified layout for phones and property manager use.
 """
 import os
 import json
+import base64
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -157,7 +158,6 @@ for name in all_meters:
             })
 
 # --- Header: title ---
-import base64
 logo_path = os.path.join(os.path.dirname(__file__), "../../quick-export.png")
 with open(logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
