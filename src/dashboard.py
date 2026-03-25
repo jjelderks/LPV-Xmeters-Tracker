@@ -205,14 +205,12 @@ with tab_usage:
     st.divider()
 
     # --- KPI row ---
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     total_usage = pd.to_numeric(summary_df[usage_col], errors="coerce").sum()
     col1.metric("Total Usage (all meters)", f"{total_usage:.1f} m³")
     col2.metric("Active Meters", len(summary_df))
-    top_user = summary_df.loc[pd.to_numeric(summary_df[usage_col], errors="coerce").idxmax(), "Name"]
-    col3.metric("Highest Usage", top_user)
     days = (daily_df["Date"].max() - daily_df["Date"].min()).days + 1
-    col4.metric("Days Tracked", days)
+    col3.metric("Days Tracked", days)
 
     st.divider()
 
