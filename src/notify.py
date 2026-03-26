@@ -85,11 +85,11 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
             over_max = max_daily > 0 and usage > max_daily
             if over_avg or over_max:
                 if over_avg and over_max:
-                    trigger = f"2.5x clean mean + daily rec. exceeded ({max_daily:.2f} m³)"
+                    trigger = f"exceeded 2.5x clean mean (threshold {threshold:.2f} m³) + daily rec. ({max_daily:.2f} m³)"
                 elif over_max:
-                    trigger = f"daily rec. exceeded ({max_daily:.2f} m³)"
+                    trigger = f"exceeded daily rec. ({max_daily:.2f} m³)"
                 else:
-                    trigger = f"2.5x clean mean ({avg_daily:.2f} m³)"
+                    trigger = f"exceeded 2.5x clean mean (threshold {threshold:.2f} m³)"
                 spike_alerts.append({
                     "meter": name,
                     "usage": usage,
