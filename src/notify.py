@@ -54,10 +54,9 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
     - Usage > max daily threshold (unconditional, if set)
     """
     from collections import defaultdict
-    from datetime import date, timedelta
 
-    # Use yesterday's date since nightly data may not include today yet
-    yesterday = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Use the most recent date in the data (works regardless of run time)
+    yesterday = max(r["date"] for r in readings)
 
     by_meter = defaultdict(list)
     for r in readings:
@@ -66,7 +65,7 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
     spike_alerts = []
 
     for name, rows in by_meter.items():
-        # All historical daily usages except yesterday (to build clean baseline)
+        # All historical daily usages except the most recent date (to build clean baseline)
         historical = [r["daily_usage"] for r in rows
                       if r["daily_usage"] > 0 and r["date"] != yesterday]
         if not historical:
