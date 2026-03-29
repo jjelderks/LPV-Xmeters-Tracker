@@ -269,6 +269,39 @@ with tab_usage:
 
     st.divider()
 
+    # --- Meter vs Max Daily ---
+    st.subheader("📉 Meter Usage vs Max Daily Limit")
+    selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
+    meter_df = daily_df[daily_df["Name"] == selected_meter].copy()
+    max_daily = max_thresholds.get(selected_meter, 0.0)
+    fig_mvmax = go.Figure()
+    fig_mvmax.add_trace(go.Scatter(
+        x=meter_df["Date"],
+        y=meter_df["Daily Usage (m³)"],
+        mode="lines+markers",
+        line=dict(color="#1a4a8a", width=2),
+        marker=dict(color="#1a4a8a", size=5),
+        name="Daily Usage",
+    ))
+    if max_daily > 0:
+        fig_mvmax.add_hline(
+            y=max_daily,
+            line_dash="dash",
+            line_color="red",
+            line_width=2,
+            annotation_text=f"Max Daily: {max_daily:.2f} m³",
+            annotation_position="top right",
+        )
+    fig_mvmax.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Daily Usage (m³)",
+        hovermode="x unified",
+        showlegend=False,
+    )
+    st.plotly_chart(fig_mvmax, use_container_width=True)
+
+    st.divider()
+
     # --- Total Usage per Meter ---
     st.subheader("📊 Total Usage per Meter (since Jan 6, 2026)")
     display_summary = summary_df.copy()

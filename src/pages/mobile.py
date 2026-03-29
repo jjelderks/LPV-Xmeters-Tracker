@@ -8,6 +8,7 @@ import base64
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 import gspread
@@ -271,7 +272,43 @@ if selected:
 
 st.divider()
 
-# --- 5. Spike Alert / High Use ---
+# --- 5. Meter Usage vs Max Daily ---
+st.subheader("📉 Meter vs Max Daily Limit")
+selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
+meter_df = daily_df[daily_df["Name"] == selected_meter].copy()
+max_daily = max_thresholds.get(selected_meter, 0.0)
+fig_mvmax = go.Figure()
+fig_mvmax.add_trace(go.Scatter(
+    x=meter_df["Date"],
+    y=meter_df["Daily Usage (m³)"],
+    mode="lines+markers",
+    line=dict(color="#1a4a8a", width=2),
+    marker=dict(color="#1a4a8a", size=5),
+    name="Daily Usage",
+))
+if max_daily > 0:
+    fig_mvmax.add_hline(
+        y=max_daily,
+        line_dash="dash",
+        line_color="red",
+        line_width=2,
+        annotation_text=f"Max: {max_daily:.2f} m³",
+        annotation_position="top right",
+    )
+fig_mvmax.update_layout(
+    height=300,
+    margin=dict(l=5, r=5, t=10, b=5),
+    xaxis_title="Date",
+    yaxis_title="Usage (m³)",
+    hovermode="x unified",
+    showlegend=False,
+    dragmode=False,
+)
+st.plotly_chart(fig_mvmax, use_container_width=True, config=MOBILE_CHART_CONFIG)
+
+st.divider()
+
+# --- 6. Spike Alert / High Use ---
 st.subheader("⚠️ Spike Alert / High Use")
 if alerts:
     alerts_df = pd.DataFrame(alerts)
