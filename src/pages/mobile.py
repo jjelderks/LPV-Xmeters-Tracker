@@ -300,7 +300,7 @@ if max_daily > 0:
         line_color="red",
         line_width=2,
         annotation_text=f"Daily Limit (rec): {max_daily:.2f} m³",
-        annotation_position="top right",
+        annotation_position="top left",
     )
 fig_mvmax.update_layout(
     height=300,
