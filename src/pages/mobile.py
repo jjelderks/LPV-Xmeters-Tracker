@@ -273,7 +273,7 @@ if selected:
 st.divider()
 
 # --- 5. Meter Usage vs Max Daily ---
-st.subheader("📉 Meter vs Max Daily Limit")
+st.subheader("📉 Meter vs Daily Limit (rec)")
 selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
 meter_df = daily_df[daily_df["Name"] == selected_meter].copy()
 max_daily = max_thresholds.get(selected_meter, 0.0)
@@ -292,7 +292,7 @@ if max_daily > 0:
         line_dash="dash",
         line_color="red",
         line_width=2,
-        annotation_text=f"Max: {max_daily:.2f} m³",
+        annotation_text=f"Daily Limit (rec): {max_daily:.2f} m³",
         annotation_position="top right",
     )
 fig_mvmax.update_layout(

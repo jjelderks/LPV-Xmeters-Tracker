@@ -177,7 +177,7 @@ for name in all_meters:
                 "Clean Mean (m³)": round(avg, 4),
                 "Threshold (m³)": round(threshold, 4),
                 "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
-                "Max Daily (m³)": round(max_daily, 4) if max_daily else "",
+                "Daily Limit rec. (m³)": round(max_daily, 4) if max_daily else "",
             })
 
 # --- Tabs ---
@@ -270,7 +270,7 @@ with tab_usage:
     st.divider()
 
     # --- Meter vs Max Daily ---
-    st.subheader("📉 Meter Usage vs Max Daily Limit")
+    st.subheader("📉 Meter Usage vs Daily Limit (rec)")
     selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
     meter_df = daily_df[daily_df["Name"] == selected_meter].copy()
     max_daily = max_thresholds.get(selected_meter, 0.0)
@@ -289,7 +289,7 @@ with tab_usage:
             line_dash="dash",
             line_color="red",
             line_width=2,
-            annotation_text=f"Max Daily: {max_daily:.2f} m³",
+            annotation_text=f"Daily Limit (rec): {max_daily:.2f} m³",
             annotation_position="top right",
         )
     fig_mvmax.update_layout(
