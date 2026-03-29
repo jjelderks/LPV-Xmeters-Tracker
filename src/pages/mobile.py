@@ -272,11 +272,18 @@ if selected:
 
 st.divider()
 
-# --- 5. Meter Usage vs Max Daily ---
+# --- 5. Meter Usage vs Daily Limit ---
 st.subheader("📉 Meter vs Daily Limit (rec)")
+st.caption("Last 30 days")
 selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
-meter_df = daily_df[daily_df["Name"] == selected_meter].copy()
+cutoff_30 = daily_df["Date"].max() - pd.Timedelta(days=29)
+meter_df = daily_df[(daily_df["Name"] == selected_meter) & (daily_df["Date"] >= cutoff_30)].copy()
 max_daily = max_thresholds.get(selected_meter, 0.0)
+if max_daily > 0 and not meter_df.empty:
+    days_over = (meter_df["Daily Usage (m³)"] > max_daily).sum()
+    total_days = len(meter_df)
+    pct = days_over / total_days * 100
+    st.markdown(f"**{days_over} of {total_days} days over Daily Limit (rec) — {pct:.1f}%**")
 fig_mvmax = go.Figure()
 fig_mvmax.add_trace(go.Scatter(
     x=meter_df["Date"],
