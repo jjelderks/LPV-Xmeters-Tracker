@@ -283,7 +283,8 @@ if max_daily > 0 and not meter_df.empty:
     days_over = (meter_df["Daily Usage (m³)"] > max_daily).sum()
     total_days = len(meter_df)
     pct = days_over / total_days * 100
-    st.markdown(f"**{days_over} of {total_days} days over Daily Limit (rec) — {pct:.1f}%**")
+    avg_30 = meter_df["Daily Usage (m³)"].mean()
+    st.markdown(f"**{days_over} of {total_days} days over Daily Limit (rec) — {pct:.1f}% | last 30 days daily avg: {avg_30:.2f} m³**")
 fig_mvmax = go.Figure()
 fig_mvmax.add_trace(go.Scatter(
     x=meter_df["Date"],
