@@ -269,6 +269,29 @@ with tab_usage:
 
     st.divider()
 
+    # --- Total Daily Usage (Last 30 Days) ---
+    st.subheader("📈 Total System Usage — Last 30 Days")
+    st.caption("Sum of all meters' daily usage per day (previous day ~16:30 → that date ~16:30).")
+    cutoff_30d = latest_date - pd.Timedelta(days=29)
+    total_daily = (
+        daily_df[daily_df["Date"] >= cutoff_30d]
+        .groupby("Date", as_index=False)["Daily Usage (m³)"]
+        .sum()
+        .sort_values("Date")
+    )
+    fig_total = px.line(
+        total_daily,
+        x="Date",
+        y="Daily Usage (m³)",
+        markers=True,
+        labels={"Daily Usage (m³)": "Total Usage (m³)", "Date": "Date"},
+    )
+    fig_total.update_traces(line_color="#4C9BE8")
+    fig_total.update_layout(hovermode="x unified")
+    st.plotly_chart(fig_total, use_container_width=True)
+
+    st.divider()
+
     # --- Meter vs Daily Limit ---
     st.subheader("📉 Meter Usage vs Daily Limit (rec)")
     st.caption("Last 30 days")
