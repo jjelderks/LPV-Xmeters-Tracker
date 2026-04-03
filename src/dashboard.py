@@ -269,16 +269,16 @@ with tab_usage:
 
     st.divider()
 
-    # --- Total Daily Usage (Last 30 Days) ---
-    st.subheader("📈 Total System Usage — Last 30 Days")
+    # --- Total Daily Usage (since Feb 25) ---
+    st.subheader("📈 Total System Usage — Since Feb 25, 2026")
     st.caption("Sum of all meters' daily usage per day (previous day ~16:30 → that date ~16:30).")
-    cutoff_30d = latest_date - pd.Timedelta(days=29)
     total_daily = (
-        daily_df[daily_df["Date"] >= cutoff_30d]
+        daily_df[daily_df["Date"] >= pd.Timestamp("2026-02-25")]
         .groupby("Date", as_index=False)["Daily Usage (m³)"]
         .sum()
         .sort_values("Date")
     )
+    total_mean = total_daily["Daily Usage (m³)"].mean()
     fig_total = px.line(
         total_daily,
         x="Date",
@@ -287,6 +287,14 @@ with tab_usage:
         labels={"Daily Usage (m³)": "Total Usage (m³)", "Date": "Date"},
     )
     fig_total.update_traces(line_color="#4C9BE8")
+    fig_total.add_hline(
+        y=total_mean,
+        line_dash="dash",
+        line_color="red",
+        line_width=2,
+        annotation_text=f"Mean: {total_mean:.2f} m³",
+        annotation_position="top left",
+    )
     fig_total.update_layout(hovermode="x unified")
     st.plotly_chart(fig_total, use_container_width=True)
 
