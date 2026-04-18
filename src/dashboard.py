@@ -655,6 +655,17 @@ with tab_billing:
             "Each tab includes Q2 fixed costs (forward-billed) and Q1 variable costs (backward-billed). "
             "Safe to re-run — existing Q2 tabs will be overwritten."
         )
+
+        if st.button("🔍 List billing tabs (diagnostic)"):
+            try:
+                spreadsheet = _get_statements_spreadsheet()
+                titles = [ws.title for ws in spreadsheet.worksheets()]
+                st.write("**All tabs found:**")
+                for t in titles:
+                    st.code(t)
+            except Exception as e:
+                st.error(f"Error connecting to spreadsheet: {e}")
+
         if st.button("Generate Q2 Billing Tabs", type="primary"):
             with st.spinner("Generating Q2 tabs…"):
                 try:
