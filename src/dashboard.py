@@ -139,15 +139,14 @@ def _get_q1_usage_per_meter(daily_df, summary_df):
 def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
     import re
 
-    q1_usage = _get_q1_usage_per_meter(daily_df, summary_df)
+    q1_usage      = _get_q1_usage_per_meter(daily_df, summary_df)
     total_q1_usage = q1_usage.sum()
+    q1_days        = 84  # Jan 6 → Mar 31
 
-    q1_start_dt = pd.Timestamp("2026-01-01")
-    q1_end_dt   = pd.Timestamp("2026-03-31")
     q1_var_total = (
         variable_costs_df[
-            (variable_costs_df["Date"] >= q1_start_dt) &
-            (variable_costs_df["Date"] <= q1_end_dt)
+            (variable_costs_df["Date"] >= pd.Timestamp("2026-01-01")) &
+            (variable_costs_df["Date"] <= pd.Timestamp("2026-03-31"))
         ]["Cost"].sum()
         if not variable_costs_df.empty else 0.0
     )
@@ -159,21 +158,22 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         if str(row.get("Meter Number", "")).strip()
     }
 
-    # Q1 usage info per meter (for updating usage section in Q2 tab)
-    q1_days = 84  # Jan 6 → Mar 31
-
     spreadsheet = _get_statements_spreadsheet()
     results = []
 
     for ws in spreadsheet.worksheets():
-        if ws.title in NON_BILLING_TABS or "Q2" in ws.title:
+        if ws.title in NON_BILLING_TABS:
             continue
+        if re.search(r'q2', ws.title, re.IGNORECASE):
+            continue
+        if not re.search(r'q1', ws.title, re.IGNORECASE):
+            continue  # only process Q1 billing tabs
 
         values = ws.get_all_values()
         if not values:
             continue
 
-        # Identify which tracker meters appear in this tab
+        # Identify tracker meters in this tab by serial number
         tab_meter_names = set()
         for row in values:
             for cell in row:
@@ -181,99 +181,110 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 if short in meter_to_name:
                     tab_meter_names.add(meter_to_name[short])
 
-        tab_q1_usage = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
-        tab_var_cost = round(
-            tab_q1_usage / total_q1_usage * q1_var_total if total_q1_usage > 0 else 0.0, 2
-        )
-        tab_q1_liters  = round(tab_q1_usage * 1000, 1)
-        tab_q1_gallons = round(tab_q1_usage * 264.172, 1)
-        tab_q1_avg_m3  = round(tab_q1_usage / q1_days, 2)
+        tab_q1_usage  = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
+        tab_pct        = round(tab_q1_usage / total_q1_usage * 100 if total_q1_usage > 0 else 0.0, 2)
+        tab_var_cost   = round(tab_q1_usage / total_q1_usage * q1_var_total if total_q1_usage > 0 else 0.0, 2)
+        tab_liters     = round(tab_q1_usage * 1000, 1)
+        tab_gallons    = round(tab_q1_usage * 264.172, 1)
+        tab_avg_m3     = round(tab_q1_usage / q1_days, 3)
 
-        # Build Q2 values row by row
-        new_values = []
-        pump_row_idx = None
+        # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
+        q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
 
-        for i, row in enumerate(values):
-            new_row = []
-            row_flat = " ".join(str(c) for c in row).lower()
+        # Delete existing Q2 tab if present
+        try:
+            spreadsheet.del_worksheet(spreadsheet.worksheet(q2_title))
+        except gspread.exceptions.WorksheetNotFound:
+            pass
 
-            for cell in row:
-                s = str(cell)
-                s = re.sub(r'\bQ1\b', 'Q2', s)
-                s = s.replace("January 1 - March 31, 2026", "April 1 - June 30, 2026")
-                s = re.sub(r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},\s+2026', 'April 1, 2026', s)
-                # Update usage info cells with Q1 actuals
-                if s.strip() and tab_q1_usage > 0:
-                    if re.match(r'^\d+$', s.strip()) and "number of days" in row_flat:
+        try:
+            # Duplicate preserving all formatting, images, and logos
+            q2_ws = spreadsheet.duplicate_sheet(
+                source_sheet_id=ws.id,
+                new_sheet_name=q2_title,
+            )
+
+            # Read duplicated values for scanning
+            q2_vals = q2_ws.get_all_values()
+            updates  = []  # list of {"range": "A1", "values": [[v]]}
+
+            for i, row in enumerate(q2_vals):
+                row_lower = " ".join(row).lower()
+
+                for j, cell in enumerate(row):
+                    s        = str(cell)
+                    original = s
+                    a1       = gspread.utils.rowcol_to_a1(i + 1, j + 1)
+
+                    # ── Text replacements ──────────────────────────────────
+                    s = re.sub(r'\bQ1\b', 'Q2', s)
+                    s = s.replace("January 1 - March 31, 2026", "April 1 - June 30, 2026")
+                    s = s.replace("Jan. 1 - Mar. 31, 2026",     "Apr. 1 - Jun. 30, 2026")
+                    s = re.sub(
+                        r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},?\s+2026',
+                        'April 1, 2026', s
+                    )
+
+                    # ── Usage section label ────────────────────────────────
+                    s = re.sub(
+                        r'(?i)since\s+meter\s+installation\s+date',
+                        'January 6 – March 31, 2026',
+                        s
+                    )
+
+                    # ── Fill existing NA fields ────────────────────────────
+                    if s.strip().upper() == "NA":
+                        if "% of usage" in row_lower:
+                            s = f"{tab_pct:.2f}%"
+                        elif "subtotal" in row_lower:
+                            s = f"${tab_var_cost:,.2f}"
+
+                    # ── Usage Information numeric fields ───────────────────
+                    stripped = s.replace(",", "").strip()
+                    if re.match(r'^\d+$', stripped) and "number of days" in row_lower:
                         s = str(q1_days)
-                    elif re.match(r'^[\d,]+\.\d+$', s.replace(",", "").strip()):
-                        # Identify context from neighbouring cells in same row
-                        row_context = " ".join(str(c) for c in row).lower()
-                        if "liters" in row_context and s != str(tab_q1_liters):
-                            try:
-                                float(s.replace(",", ""))
-                                s = f"{tab_q1_liters:,.1f}"
-                            except ValueError:
-                                pass
-                        elif "gallon" in row_context:
-                            try:
-                                float(s.replace(",", ""))
-                                s = f"{tab_q1_gallons:,.1f}"
-                            except ValueError:
-                                pass
-                        elif "average" in row_context and "m³" in row_context:
-                            try:
-                                float(s.replace(",", ""))
-                                s = f"{tab_q1_avg_m3:.2f}"
-                            except ValueError:
-                                pass
-                new_row.append(s)
+                    elif re.match(r'^[\d]+\.[\d]+$', stripped):
+                        try:
+                            float(stripped)
+                            if "total liters" in row_lower or \
+                               ("liters" in row_lower and "total" in row_lower):
+                                s = f"{tab_liters:,.1f}"
+                            elif "total gallons" in row_lower or \
+                                 ("gallons" in row_lower and "total" in row_lower):
+                                s = f"{tab_gallons:,.1f}"
+                            elif "average daily" in row_lower and "m³" in row_lower:
+                                s = f"{tab_avg_m3:.3f}"
+                            elif "usage total" in row_lower and "m³" in row_lower:
+                                s = f"{tab_q1_usage:.4f}"
+                        except ValueError:
+                            pass
 
-            new_values.append(new_row)
+                    if s != original:
+                        updates.append({"range": a1, "values": [[s]]})
 
-            if "pump" in row_flat and "capital surcharge" in row_flat:
-                pump_row_idx = i
-
-        # Insert Q1 variable cost row after pump row
-        if pump_row_idx is not None and tab_var_cost > 0:
-            pump_row = new_values[pump_row_idx]
-            var_row  = [""] * len(pump_row)
-            var_row[0] = "Q1 2026 Variable Cost (Jan 6 – Mar 31)"
-            last_amount_col = len(pump_row) - 1
-            for j in range(len(pump_row) - 1, -1, -1):
-                val = str(pump_row[j]).replace("$", "").replace(",", "").strip()
-                try:
-                    float(val)
-                    last_amount_col = j
-                    break
-                except ValueError:
-                    pass
-            var_row[last_amount_col] = f"${tab_var_cost:,.2f}"
-            new_values.insert(pump_row_idx + 1, var_row)
-
-            # Update TOTAL DUE
-            for i, row in enumerate(new_values):
-                if "TOTAL DUE" in " ".join(str(c) for c in row):
+            # ── Update TOTAL DUE to include variable cost ──────────────────
+            for i, row in enumerate(q2_vals):
+                if "TOTAL DUE" in " ".join(row):
                     for j in range(len(row) - 1, -1, -1):
                         val = str(row[j]).replace("$", "").replace(",", "").strip()
                         try:
-                            new_values[i][j] = f"${float(val) + tab_var_cost:,.2f}"
+                            new_total = round(float(val) + tab_var_cost, 2)
+                            updates.append({
+                                "range": gspread.utils.rowcol_to_a1(i + 1, j + 1),
+                                "values": [[f"${new_total:,.2f}"]]
+                            })
                             break
                         except ValueError:
                             pass
                     break
 
-        q2_title = f"{ws.title} - Q2"
-        try:
-            try:
-                spreadsheet.del_worksheet(spreadsheet.worksheet(q2_title))
-            except gspread.exceptions.WorksheetNotFound:
-                pass
-            n_rows = max(len(new_values) + 10, 50)
-            n_cols = max((max(len(r) for r in new_values) if new_values else 6), 6)
-            q2_ws = spreadsheet.add_worksheet(title=q2_title, rows=n_rows, cols=n_cols)
-            q2_ws.update("A1", new_values, value_input_option="USER_ENTERED")
-            results.append(f"✅ {q2_title} — Q1 var cost: ${tab_var_cost:,.2f}")
+            if updates:
+                q2_ws.batch_update(updates, value_input_option="USER_ENTERED")
+
+            results.append(
+                f"✅ {q2_title} — Q1 var cost: ${tab_var_cost:,.2f} ({tab_pct:.2f}%)"
+            )
+
         except Exception as e:
             results.append(f"❌ {ws.title}: {e}")
 
