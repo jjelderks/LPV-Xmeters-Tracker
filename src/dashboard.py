@@ -100,9 +100,9 @@ def load_variable_costs_total():
                     total += float(row[3].replace(",", "").replace("$", ""))
                 except ValueError:
                     pass
-        return total
-    except Exception:
-        return 0.0
+        return total, None
+    except Exception as e:
+        return 0.0, str(e)
 
 @st.cache_data(ttl=60)
 def load_spike_log():
@@ -120,7 +120,7 @@ def load_spike_log():
 with st.spinner("Loading data..."):
     summary_df, daily_df = load_data()
     spike_df = load_spike_log()
-    variable_costs_total = load_variable_costs_total()
+    variable_costs_total, variable_costs_error = load_variable_costs_total()
 
 # --- Header ---
 st.markdown("<h1 style='text-align:center;'>💧 LPV Water Meter Dashboard</h1>", unsafe_allow_html=True)
@@ -392,7 +392,20 @@ with tab_usage:
 with tab_billing:
 
     st.subheader("💰 Variable Cost Estimate (since Jan 6, 2026)")
-    st.caption(f"Based on each meter's % of total system usage × current variable costs running total: **${variable_costs_total:,.2f}** as of {pd.Timestamp.now().strftime('%Y-%m-%d')}")
+
+    if variable_costs_error:
+        st.warning(f"Could not load variable costs from Google Sheets: {variable_costs_error}")
+
+    variable_costs_input = st.number_input(
+        "Variable Costs Total ($) — auto-loaded from Google Sheets, or enter manually:",
+        min_value=0.0,
+        value=float(variable_costs_total),
+        step=0.01,
+        format="%.2f",
+    )
+    variable_costs_total = variable_costs_input
+
+    st.caption(f"Based on each meter's % of total system usage × variable costs total: **${variable_costs_total:,.2f}** as of {pd.Timestamp.now().strftime('%Y-%m-%d')}")
 
     billing_df = summary_df[["Name", "Meter Number", usage_col]].copy()
     billing_df[usage_col] = pd.to_numeric(billing_df[usage_col], errors="coerce")
