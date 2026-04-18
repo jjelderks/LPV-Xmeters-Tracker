@@ -95,9 +95,9 @@ def load_variable_costs_total():
         rows = ws.get_all_values()
         total = 0.0
         for row in rows[1:]:
-            if len(row) >= 4 and row[3].strip():
+            if len(row) >= 5 and row[4].strip():
                 try:
-                    total += float(row[3].replace(",", "").replace("$", ""))
+                    total += float(row[4].replace(",", "").replace("$", ""))
                 except ValueError:
                     pass
         return total, None
