@@ -79,7 +79,8 @@ def load_data():
     return summary_df, daily_df
 
 @st.cache_data(ttl=3600)
-def load_variable_costs_total():
+def load_variable_costs():
+    empty = pd.DataFrame(columns=["Date", "Cost"])
     try:
         if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
             import json
@@ -93,16 +94,18 @@ def load_variable_costs_total():
         billing_sheet = client.open_by_key(BILLING_SHEET_ID)
         ws = billing_sheet.worksheet("Variable Costs")
         rows = ws.get_all_values()
-        total = 0.0
+        records = []
         for row in rows[1:]:
-            if len(row) >= 5 and row[4].strip():
+            if len(row) >= 5 and row[0].strip() and row[4].strip():
                 try:
-                    total += float(row[4].replace(",", "").replace("$", ""))
-                except ValueError:
+                    date = pd.to_datetime(row[0].strip(), dayfirst=True)
+                    cost = float(row[4].replace(",", "").replace("$", ""))
+                    records.append({"Date": date, "Cost": cost})
+                except (ValueError, Exception):
                     pass
-        return total, None
+        return pd.DataFrame(records) if records else empty, None
     except Exception as e:
-        return 0.0, str(e)
+        return empty, str(e)
 
 @st.cache_data(ttl=60)
 def load_spike_log():
@@ -120,7 +123,7 @@ def load_spike_log():
 with st.spinner("Loading data..."):
     summary_df, daily_df = load_data()
     spike_df = load_spike_log()
-    variable_costs_total, variable_costs_error = load_variable_costs_total()
+    variable_costs_df, variable_costs_error = load_variable_costs()
 
 # --- Header ---
 st.markdown("<h1 style='text-align:center;'>💧 LPV Water Meter Dashboard</h1>", unsafe_allow_html=True)
@@ -391,32 +394,65 @@ with tab_usage:
 # ================================================================
 with tab_billing:
 
-    st.subheader("💰 Variable Cost Estimate (since Jan 6, 2026)")
+    # --- Quarter selector ---
+    current_month = pd.Timestamp.now().month
+    current_year = pd.Timestamp.now().year
+    current_q = (current_month - 1) // 3 + 1
+    quarter_options = [f"Q{q} {current_year}" for q in range(1, 5)]
+    default_q_index = current_q - 1
+    selected_quarter = st.selectbox("Select Quarter", quarter_options, index=default_q_index)
+
+    q_num = int(selected_quarter[1])
+    q_year = int(selected_quarter[3:])
+    q_start = pd.Timestamp(q_year, (q_num - 1) * 3 + 1, 1)
+    q_end = (q_start + pd.offsets.QuarterEnd(0)).normalize()
+
+    st.subheader(f"💰 Billing — {selected_quarter}")
 
     if variable_costs_error:
         st.warning(f"Could not load variable costs from Google Sheets: {variable_costs_error}")
 
-    variable_costs_input = st.number_input(
-        "Variable Costs Total ($) — auto-loaded from Google Sheets, or enter manually:",
-        min_value=0.0,
-        value=float(variable_costs_total),
-        step=0.01,
-        format="%.2f",
+    # --- Filter variable costs to quarter ---
+    if not variable_costs_df.empty:
+        q_costs_df = variable_costs_df[
+            (variable_costs_df["Date"] >= q_start) &
+            (variable_costs_df["Date"] <= q_end)
+        ]
+        q_costs_total = q_costs_df["Cost"].sum()
+    else:
+        q_costs_total = 0.0
+
+    st.caption(
+        f"Variable costs for {selected_quarter}: **${q_costs_total:,.2f}** | "
+        f"Usage period: {q_start.strftime('%Y-%m-%d')} – {q_end.strftime('%Y-%m-%d')}"
     )
-    variable_costs_total = variable_costs_input
 
-    st.caption(f"Based on each meter's % of total system usage × variable costs total: **${variable_costs_total:,.2f}** as of {pd.Timestamp.now().strftime('%Y-%m-%d')}")
+    # --- Filter usage to quarter ---
+    q_usage = (
+        daily_df[
+            (daily_df["Date"] >= q_start) &
+            (daily_df["Date"] <= q_end)
+        ]
+        .groupby("Name")["Daily Usage (m³)"]
+        .sum()
+        .reset_index()
+        .rename(columns={"Daily Usage (m³)": "Usage (m³)"})
+    )
 
-    billing_df = summary_df[["Name", "Meter Number", usage_col]].copy()
-    billing_df[usage_col] = pd.to_numeric(billing_df[usage_col], errors="coerce")
-    total_system_usage = billing_df[usage_col].sum()
-    billing_df["% of Total Usage"] = (billing_df[usage_col] / total_system_usage * 100).round(2)
-    billing_df["Est. Variable Cost ($)"] = (billing_df[usage_col] / total_system_usage * variable_costs_total).round(2)
-    billing_df = billing_df.rename(columns={usage_col: "Usage Since Jan 6 (m³)"})
-    billing_df = billing_df.sort_values("Usage Since Jan 6 (m³)", ascending=False)
+    billing_df = summary_df[["Name", "Meter Number"]].merge(q_usage, on="Name", how="left")
+    billing_df["Usage (m³)"] = pd.to_numeric(billing_df["Usage (m³)"], errors="coerce").fillna(0)
+    total_system_usage = billing_df["Usage (m³)"].sum()
+    if total_system_usage > 0:
+        billing_df["% of Total Usage"] = (billing_df["Usage (m³)"] / total_system_usage * 100).round(2)
+        billing_df["Est. Variable Cost ($)"] = (billing_df["Usage (m³)"] / total_system_usage * q_costs_total).round(2)
+    else:
+        billing_df["% of Total Usage"] = 0.0
+        billing_df["Est. Variable Cost ($)"] = 0.0
+
+    billing_df = billing_df.sort_values("Usage (m³)", ascending=False)
     st.dataframe(
         billing_df.style.format({
-            "Usage Since Jan 6 (m³)": "{:.4f}",
+            "Usage (m³)": "{:.4f}",
             "% of Total Usage": "{:.2f}%",
             "Est. Variable Cost ($)": "${:.2f}",
         }),
