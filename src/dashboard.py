@@ -16,7 +16,9 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "../config/.env"))
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-BILLING_SHEET_ID = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"
+BILLING_SHEET_ID    = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"
+STATEMENTS_SHEET_ID = "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o"
+NON_BILLING_TABS    = {"Master Data", "Initial Reading", "Sheet1"}
 
 st.set_page_config(
     page_title="LPV Water Meters",
@@ -106,6 +108,177 @@ def load_variable_costs():
         return pd.DataFrame(records) if records else empty, None
     except Exception as e:
         return empty, str(e)
+
+def _get_statements_spreadsheet():
+    if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
+        import json
+        info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
+        creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+    else:
+        creds = Credentials.from_service_account_file(
+            os.environ["GOOGLE_CREDENTIALS_FILE"], scopes=SCOPES
+        )
+    client = gspread.authorize(creds)
+    return client.open_by_key(STATEMENTS_SHEET_ID)
+
+
+def _get_q1_usage_per_meter(daily_df, summary_df):
+    """Return Series of Q1 usage (m³) per meter name: Total Flow Mar 31 – Initial Reading Jan 6."""
+    q1_end = pd.Timestamp("2026-03-31")
+    mar31 = (
+        daily_df[daily_df["Date"] == q1_end]
+        .set_index("Name")["Total Flow (m³)"]
+    )
+    initial = (
+        summary_df.set_index("Name")["Initial Reading (m³)"]
+        .apply(pd.to_numeric, errors="coerce")
+    )
+    return (mar31 - initial).dropna().clip(lower=0)
+
+
+def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
+    import re
+
+    q1_usage = _get_q1_usage_per_meter(daily_df, summary_df)
+    total_q1_usage = q1_usage.sum()
+
+    q1_start_dt = pd.Timestamp("2026-01-01")
+    q1_end_dt   = pd.Timestamp("2026-03-31")
+    q1_var_total = (
+        variable_costs_df[
+            (variable_costs_df["Date"] >= q1_start_dt) &
+            (variable_costs_df["Date"] <= q1_end_dt)
+        ]["Cost"].sum()
+        if not variable_costs_df.empty else 0.0
+    )
+
+    # Short meter number (no leading zeros) → tracker name
+    meter_to_name = {
+        str(row["Meter Number"]).lstrip("0"): row["Name"]
+        for _, row in summary_df.iterrows()
+        if str(row.get("Meter Number", "")).strip()
+    }
+
+    # Q1 usage info per meter (for updating usage section in Q2 tab)
+    q1_days = 84  # Jan 6 → Mar 31
+
+    spreadsheet = _get_statements_spreadsheet()
+    results = []
+
+    for ws in spreadsheet.worksheets():
+        if ws.title in NON_BILLING_TABS or "Q2" in ws.title:
+            continue
+
+        values = ws.get_all_values()
+        if not values:
+            continue
+
+        # Identify which tracker meters appear in this tab
+        tab_meter_names = set()
+        for row in values:
+            for cell in row:
+                short = str(cell).strip().lstrip("0")
+                if short in meter_to_name:
+                    tab_meter_names.add(meter_to_name[short])
+
+        tab_q1_usage = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
+        tab_var_cost = round(
+            tab_q1_usage / total_q1_usage * q1_var_total if total_q1_usage > 0 else 0.0, 2
+        )
+        tab_q1_liters  = round(tab_q1_usage * 1000, 1)
+        tab_q1_gallons = round(tab_q1_usage * 264.172, 1)
+        tab_q1_avg_m3  = round(tab_q1_usage / q1_days, 2)
+
+        # Build Q2 values row by row
+        new_values = []
+        pump_row_idx = None
+
+        for i, row in enumerate(values):
+            new_row = []
+            row_flat = " ".join(str(c) for c in row).lower()
+
+            for cell in row:
+                s = str(cell)
+                s = re.sub(r'\bQ1\b', 'Q2', s)
+                s = s.replace("January 1 - March 31, 2026", "April 1 - June 30, 2026")
+                s = re.sub(r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},\s+2026', 'April 1, 2026', s)
+                # Update usage info cells with Q1 actuals
+                if s.strip() and tab_q1_usage > 0:
+                    if re.match(r'^\d+$', s.strip()) and "number of days" in row_flat:
+                        s = str(q1_days)
+                    elif re.match(r'^[\d,]+\.\d+$', s.replace(",", "").strip()):
+                        # Identify context from neighbouring cells in same row
+                        row_context = " ".join(str(c) for c in row).lower()
+                        if "liters" in row_context and s != str(tab_q1_liters):
+                            try:
+                                float(s.replace(",", ""))
+                                s = f"{tab_q1_liters:,.1f}"
+                            except ValueError:
+                                pass
+                        elif "gallon" in row_context:
+                            try:
+                                float(s.replace(",", ""))
+                                s = f"{tab_q1_gallons:,.1f}"
+                            except ValueError:
+                                pass
+                        elif "average" in row_context and "m³" in row_context:
+                            try:
+                                float(s.replace(",", ""))
+                                s = f"{tab_q1_avg_m3:.2f}"
+                            except ValueError:
+                                pass
+                new_row.append(s)
+
+            new_values.append(new_row)
+
+            if "pump" in row_flat and "capital surcharge" in row_flat:
+                pump_row_idx = i
+
+        # Insert Q1 variable cost row after pump row
+        if pump_row_idx is not None and tab_var_cost > 0:
+            pump_row = new_values[pump_row_idx]
+            var_row  = [""] * len(pump_row)
+            var_row[0] = "Q1 2026 Variable Cost (Jan 6 – Mar 31)"
+            last_amount_col = len(pump_row) - 1
+            for j in range(len(pump_row) - 1, -1, -1):
+                val = str(pump_row[j]).replace("$", "").replace(",", "").strip()
+                try:
+                    float(val)
+                    last_amount_col = j
+                    break
+                except ValueError:
+                    pass
+            var_row[last_amount_col] = f"${tab_var_cost:,.2f}"
+            new_values.insert(pump_row_idx + 1, var_row)
+
+            # Update TOTAL DUE
+            for i, row in enumerate(new_values):
+                if "TOTAL DUE" in " ".join(str(c) for c in row):
+                    for j in range(len(row) - 1, -1, -1):
+                        val = str(row[j]).replace("$", "").replace(",", "").strip()
+                        try:
+                            new_values[i][j] = f"${float(val) + tab_var_cost:,.2f}"
+                            break
+                        except ValueError:
+                            pass
+                    break
+
+        q2_title = f"{ws.title} - Q2"
+        try:
+            try:
+                spreadsheet.del_worksheet(spreadsheet.worksheet(q2_title))
+            except gspread.exceptions.WorksheetNotFound:
+                pass
+            n_rows = max(len(new_values) + 10, 50)
+            n_cols = max((max(len(r) for r in new_values) if new_values else 6), 6)
+            q2_ws = spreadsheet.add_worksheet(title=q2_title, rows=n_rows, cols=n_cols)
+            q2_ws.update("A1", new_values, value_input_option="USER_ENTERED")
+            results.append(f"✅ {q2_title} — Q1 var cost: ${tab_var_cost:,.2f}")
+        except Exception as e:
+            results.append(f"❌ {ws.title}: {e}")
+
+    return results, q1_var_total
+
 
 @st.cache_data(ttl=60)
 def load_spike_log():
@@ -463,6 +636,29 @@ with tab_billing:
         "📋 [View full Variable Costs ledger](https://docs.google.com/spreadsheets/d/"
         "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc/edit)"
     )
+
+    st.divider()
+    with st.expander("⚙️ Admin — Generate Q2 Billing Tabs", expanded=False):
+        st.caption(
+            "Creates Q2 billing tabs in the LPV Water Meter Readings spreadsheet. "
+            "Each tab includes Q2 fixed costs (forward-billed) and Q1 variable costs (backward-billed). "
+            "Safe to re-run — existing Q2 tabs will be overwritten."
+        )
+        if st.button("Generate Q2 Billing Tabs", type="primary"):
+            with st.spinner("Generating Q2 tabs…"):
+                try:
+                    results, q1_var_total = generate_q2_billing_tabs(
+                        daily_df, summary_df, variable_costs_df
+                    )
+                    st.success(f"Done! Q1 variable costs total used: **${q1_var_total:,.2f}**")
+                    for r in results:
+                        st.write(r)
+                    st.markdown(
+                        "📋 [Open LPV Water Meter Readings](https://docs.google.com/spreadsheets/d/"
+                        "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o/edit)"
+                    )
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
 # ================================================================
 # FOOTER
