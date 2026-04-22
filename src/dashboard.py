@@ -399,18 +399,34 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                                 break
                         break
 
-            # ── TOTAL CHARGES = fixed subtotal + variable cost ─────────────
+            # ── Specific known cell updates ────────────────────────────────
+            # F24: total project water maintenance costs label + value
+            updates.append({"range": "F24", "values": [[f"${q1_var_total:,.2f}"]]})
+            # Update label for the water maintenance row if still generic
+            r24 = q2_vals[23] if len(q2_vals) > 23 else []
+            for j, cell in enumerate(r24):
+                if re.search(r'(?i)water\s+maintenance\s+costs?', str(cell)):
+                    updates.append({"range": gspread.utils.rowcol_to_a1(24, j + 1),
+                                    "values": [["Total Project Water Maintenance Costs (Q1)"]]})
+                    break
+
+            # D26:E26 (merged) — Beginning QTR Reading date
+            updates.append({"range": "D26", "values": [["6-Jan-2026"]]})
+
+            # F31 — variable subtotal formula: % of usage × total maintenance
+            updates.append({"range": "F31", "values": [["=F30*F24"]]})
+
+            # TOTAL CHARGES — formula: fixed subtotal + variable subtotal
             for i, row in enumerate(q2_vals):
                 row_str = " ".join(row)
                 if "TOTAL DUE" in row_str or "TOTAL CHARGES" in row_str:
-                    new_total = round(fixed_subtotal + tab_var_cost, 2)
                     for j in range(len(row) - 1, -1, -1):
                         val = str(row[j]).replace("$", "").replace(",", "").strip()
                         try:
                             float(val)
                             updates.append({
                                 "range": gspread.utils.rowcol_to_a1(i + 1, j + 1),
-                                "values": [[f"${new_total:,.2f}"]]
+                                "values": [["=F31+F20"]]
                             })
                             break
                         except ValueError:
