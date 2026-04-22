@@ -203,13 +203,40 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
     q2_book    = _get_or_create_q2_workbook(client)
     results    = []
 
+    # Build a lookup of Q1 tabs by normalised name (lowercase, no spaces)
+    q1_tabs = {}
     for ws in spreadsheet.worksheets():
         if ws.title in NON_BILLING_TABS:
             continue
-        if re.search(r'q2', ws.title, re.IGNORECASE):
-            continue
         if not re.search(r'q1', ws.title, re.IGNORECASE):
-            continue  # only process Q1 billing tabs
+            continue
+        q1_tabs[ws.title.lower().replace(" ", "")] = ws
+
+    # Iterate over tabs that actually exist in the Q1-Q2 workbook
+    for q2_ws in q2_book.worksheets():
+        title = q2_ws.title
+        # Strip "Copy of " prefix added by Google Sheets manual copy
+        if title.lower().startswith("copy of "):
+            title = title[len("copy of "):]
+            q2_ws.update_title(title)
+            time.sleep(0.5)
+        # Derive the expected Q1 tab name from this Q2 tab name
+        q1_title_guess = re.sub(r'(?i)q2', 'Q1', title, count=1)
+        q1_key = q1_title_guess.lower().replace(" ", "")
+
+        # Try exact match first, then case-insensitive
+        ws = q1_tabs.get(q1_key)
+        if ws is None:
+            # Try matching any Q1 tab that maps to a similar Q2 name
+            for k, v in q1_tabs.items():
+                derived = re.sub(r'(?i)q1', 'q2', v.title, count=1).lower().replace(" ", "")
+                if derived == title.lower().replace(" ", ""):
+                    ws = v
+                    break
+
+        if ws is None:
+            results.append(f"⚠️ {title} — no matching Q1 tab found in statements, skipped")
+            continue
 
         values = ws.get_all_values()
         if not values:
@@ -251,15 +278,6 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         tab_avg_m3      = round(tab_q1_usage / q1_days, 3)
         tab_avg_liters  = round(tab_liters / q1_days, 1)
         tab_avg_gallons = round(tab_gallons / q1_days, 1)
-
-        # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
-        q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
-
-        try:
-            q2_ws = q2_book.worksheet(q2_title)
-        except gspread.exceptions.WorksheetNotFound:
-            results.append(f"⚠️ {q2_title} — tab not found in Q1-Q2 workbook, skipped")
-            continue
 
         try:
             # Read existing Q2 tab values for scanning
