@@ -110,7 +110,7 @@ def load_variable_costs():
     except Exception as e:
         return empty, str(e)
 
-def _get_statements_spreadsheet():
+def _make_gspread_client():
     if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
         import json
         info = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"])
@@ -119,8 +119,18 @@ def _get_statements_spreadsheet():
         creds = Credentials.from_service_account_file(
             os.environ["GOOGLE_CREDENTIALS_FILE"], scopes=SCOPES
         )
-    client = gspread.authorize(creds)
-    return client.open_by_key(STATEMENTS_SHEET_ID)
+    return gspread.authorize(creds)
+
+def _get_statements_spreadsheet():
+    return _make_gspread_client().open_by_key(STATEMENTS_SHEET_ID)
+
+def _get_or_create_q2_workbook(client, user_email="joel.jelderks@gmail.com"):
+    try:
+        return client.open("Q2 water billing")
+    except gspread.exceptions.SpreadsheetNotFound:
+        book = client.create("Q2 water billing")
+        book.share(user_email, perm_type="user", role="writer")
+        return book
 
 
 def _get_q1_usage_per_meter(daily_df, summary_df):
@@ -171,8 +181,10 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         if str(row.get("Meter Number", "")).strip()
     }
 
-    spreadsheet = _get_statements_spreadsheet()
-    results = []
+    client     = _make_gspread_client()
+    spreadsheet = client.open_by_key(STATEMENTS_SHEET_ID)
+    q2_book    = _get_or_create_q2_workbook(client)
+    results    = []
 
     for ws in spreadsheet.worksheets():
         if ws.title in NON_BILLING_TABS:
@@ -226,19 +238,19 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
         q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
 
-        # Delete any existing Q2 tabs (new or old format)
-        for old_title in [q2_title, f"{ws.title} - Q2"]:
-            try:
-                spreadsheet.del_worksheet(spreadsheet.worksheet(old_title))
-            except gspread.exceptions.WorksheetNotFound:
-                pass
+        # Delete any existing Q2 tab in the Q2 workbook
+        try:
+            q2_book.del_worksheet(q2_book.worksheet(q2_title))
+        except gspread.exceptions.WorksheetNotFound:
+            pass
 
         try:
-            # Duplicate preserving all formatting, images, and logos
-            q2_ws = spreadsheet.duplicate_sheet(
-                source_sheet_id=ws.id,
-                new_sheet_name=q2_title,
-            )
+            # Copy Q1 tab into Q2 workbook preserving formatting
+            props = ws.copy_to(q2_book.id)
+            time.sleep(1)
+            q2_ws = q2_book.get_worksheet_by_id(props["sheetId"])
+            q2_ws.update_title(q2_title)
+            time.sleep(1)
 
             # Read duplicated values for scanning
             q2_vals = q2_ws.get_all_values()
