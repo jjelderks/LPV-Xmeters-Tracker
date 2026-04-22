@@ -281,157 +281,126 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         tab_avg_gallons = round(tab_gallons / q1_days, 1)
 
         try:
-            # Read existing Q2 tab values for scanning
             q2_vals = q2_ws.get_all_values()
-            updates  = []  # list of {"range": "A1", "values": [[v]]}
+            updates  = []
 
-            # Fix #REF! cells by substituting the corresponding Q1 cell value
+            a1 = gspread.utils.rowcol_to_a1
+
+            def _val_cell(cs):
+                s = cs.strip()
+                if s in ("", "NA", "N/A", "0.00%", "$0.00", "0", "$ -", "$-"):
+                    return True
+                return not re.search(r'[a-zA-Z]', s)
+
+            def _rightmost_val(row, row_i):
+                for j2 in range(len(row) - 1, -1, -1):
+                    if _val_cell(row[j2]):
+                        return a1(row_i + 1, j2 + 1)
+                return None
+
+            # Initial reading for this tab (sum for multi-meter tabs)
+            initial_series = (
+                summary_df.set_index("Name")["Initial Reading (m³)"]
+                .apply(pd.to_numeric, errors="coerce")
+            )
+            tab_initial = sum(
+                float(initial_series[n]) for n in tab_meter_names
+                if n in initial_series.index and not pd.isna(initial_series[n])
+            )
+
+            # ── Fix #REF! cells from broken cross-workbook formulas ────────
             for i, row in enumerate(q2_vals):
                 for j, cell in enumerate(row):
                     if str(cell).strip() == "#REF!":
                         q1_val = values[i][j] if i < len(values) and j < len(values[i]) else ""
-                        a1 = gspread.utils.rowcol_to_a1(i + 1, j + 1)
-                        updates.append({"range": a1, "values": [[q1_val]]})
-                        q2_vals[i][j] = q1_val  # update local copy for downstream logic
+                        updates.append({"range": a1(i + 1, j + 1), "values": [[q1_val]]})
+                        q2_vals[i][j] = q1_val
 
-            def _val_cell(cs):
-                """True if cell is a fillable value slot (numeric, empty, NA, $0.00, 0.00%)."""
-                s = cs.strip()
-                if s in ("", "NA", "N/A", "0.00%", "$0.00", "0"):
-                    return True
-                return not re.search(r'[a-zA-Z]', s)
-
-            # Find fixed charges subtotal value BEFORE variable section
-            fixed_subtotal = 0.0
-            in_var = False
-            for row in q2_vals:
-                rl = " ".join(row).lower()
-                if "variable charges" in rl:
-                    in_var = True
-                if not in_var and "subtotal" in rl and "total charges" not in rl:
-                    for cell in reversed(row):
-                        v = str(cell).replace("$", "").replace(",", "").strip()
-                        try:
-                            fixed_subtotal = float(v)
-                            break
-                        except ValueError:
-                            pass
-                    if fixed_subtotal:
+            # ── Known cell addresses (user-specified) ──────────────────────
+            updates.extend([
+                {"range": "F20", "values": [["=SUM(F17:F19)"]]},
+                {"range": "F24", "values": [[f"${q1_var_total:,.2f}"]]},
+                {"range": "D26", "values": [["6-Jan-2026"]]},
+                {"range": "F31", "values": [["=F30*F24"]]},
+            ])
+            # Update label in row 24
+            if len(q2_vals) > 23:
+                for j, cell in enumerate(q2_vals[23]):
+                    if re.search(r'(?i)water\s+maintenance', str(cell)):
+                        updates.append({"range": a1(24, j + 1),
+                                        "values": [["Total Project Water Maintenance Costs (Q1)"]]})
                         break
 
+            # ── Row scanning ───────────────────────────────────────────────
             in_variable_section = False
             for i, row in enumerate(q2_vals):
-                row_lower = " ".join(row).lower()
+                rl = " ".join(row).lower()
 
-                if "variable charges" in row_lower:
+                if "variable charges" in rl:
                     in_variable_section = True
 
-                # ── Text replacements (cell-level) ─────────────────────────
+                # Text replacements
                 for j, cell in enumerate(row):
-                    s        = str(cell)
-                    original = s
-
+                    s = str(cell)
+                    orig = s
                     s = re.sub(r'\bQ1\b', 'Q2', s)
                     s = s.replace("January 1 - March 31, 2026", "April 1 - June 30, 2026")
-                    s = s.replace("Jan. 1 - Mar. 31, 2026",     "Apr. 1 - Jun. 30, 2026")
-                    s = re.sub(
-                        r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},?\s+2026',
-                        'April 1, 2026', s
-                    )
-                    s = re.sub(
-                        r'(?i)since\s+meter\s+installation\s+date',
-                        'January 6 \u2013 March 31, 2026',
-                        s
-                    )
+                    s = s.replace("Jan. 1 - Mar. 31, 2026", "Apr. 1 - Jun. 30, 2026")
+                    s = re.sub(r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},?\s+2026', 'April 1, 2026', s)
+                    s = re.sub(r'(?i)since\s+meter\s+installation\s+date', 'January 6 \u2013 March 31, 2026', s)
                     s = re.sub(r'(?i)see\s+hoa\s+invoice', 'Upon receipt, see invoice', s)
                     s = re.sub(r'(?i)payment\s+due\s+date\s*:.*', 'Payment due date: Upon receipt, see invoice', s)
+                    if s != orig:
+                        updates.append({"range": a1(i + 1, j + 1), "values": [[s]]})
 
-                    if s != original:
-                        updates.append({"range": gspread.utils.rowcol_to_a1(i + 1, j + 1), "values": [[s]]})
+                # Beginning QTR Reading — value + date
+                if "beginning qtr reading" in rl or "beginning quarter reading" in rl:
+                    if tab_initial > 0:
+                        cell_a1 = _rightmost_val(row, i)
+                        if cell_a1:
+                            updates.append({"range": cell_a1, "values": [[f"{tab_initial:.4f}"]]})
+                    updates.append({"range": a1(i + 1, 4), "values": [["6-Jan-2026"]]})  # col D
+                    continue
 
-                # ── Row-level value fills ──────────────────────────────────
-                # End QTR Reading: update value AND date cell
-                if "end qtr reading" in row_lower or "end quarter reading" in row_lower:
+                # End QTR Reading — value + date
+                if "end qtr reading" in rl or "end quarter reading" in rl:
                     end_val = (f"{float(q1_end_readings[primary_meter]):.4f}"
                                if primary_meter and primary_meter in q1_end_readings.index else None)
                     if end_val:
-                        for j2 in range(len(row) - 1, -1, -1):
-                            if _val_cell(row[j2]):
-                                updates.append({"range": gspread.utils.rowcol_to_a1(i + 1, j2 + 1), "values": [[end_val]]})
-                                break
-                    # Fix end date cell (any cell with a month name in this row)
-                    for j2, cell in enumerate(row):
-                        if re.search(r'(?i)(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)', str(cell)):
-                            updates.append({"range": gspread.utils.rowcol_to_a1(i + 1, j2 + 1), "values": [["31-Mar-2026"]]})
-                            break
+                        cell_a1 = _rightmost_val(row, i)
+                        if cell_a1:
+                            updates.append({"range": cell_a1, "values": [[end_val]]})
+                    updates.append({"range": a1(i + 1, 4), "values": [["31-Mar-2026"]]})  # col D
                     continue
 
-                # Variable subtotal only (not fixed)
-                if "subtotal" in row_lower and "total charges" not in row_lower and "total water" not in row_lower:
-                    if in_variable_section:
-                        for j2 in range(len(row) - 1, -1, -1):
-                            if _val_cell(row[j2]):
-                                updates.append({"range": gspread.utils.rowcol_to_a1(i + 1, j2 + 1), "values": [[f"${tab_var_cost:,.2f}"]]})
-                                break
+                # Total charges row — formula
+                if "total due" in rl or "total charges" in rl:
+                    updates.append({"range": a1(i + 1, 6), "values": [["=F31+F20"]]})  # col F
                     continue
 
-                # Other row-level fills
+                # Variable subtotal row (in variable section only — F31 handles it, skip)
+                if "subtotal" in rl and "total charges" not in rl and "total water" not in rl:
+                    continue
+
+                # Other value fills
                 ROW_VALUES = [
-                    (lambda rl: "usage total" in rl and "m³" in rl,       lambda: f"{tab_q1_usage:.4f}"),
-                    (lambda rl: "project total" in rl,                     lambda: f"{total_q1_usage:.4f}"),
-                    (lambda rl: "% of usage" in rl,                        lambda: f"{tab_pct:.2f}%"),
-                    (lambda rl: "total water system maintenance" in rl,    lambda: f"${q1_var_total:,.2f}"),
-                    (lambda rl: "number of days" in rl,                    lambda: str(q1_days)),
-                    (lambda rl: ("total liters" in rl or ("liters" in rl and "total" in rl)) and "average" not in rl,
-                                                                            lambda: f"{tab_liters:,.1f}"),
-                    (lambda rl: ("total gallons" in rl or ("gallons" in rl and "total" in rl)) and "average" not in rl,
-                                                                            lambda: f"{tab_gallons:,.1f}"),
-                    (lambda rl: "average daily" in rl and "m³" in rl,      lambda: f"{tab_avg_m3:.3f}"),
-                    (lambda rl: "average daily" in rl and "liter" in rl,   lambda: f"{tab_avg_liters:,.1f}"),
-                    (lambda rl: "average daily" in rl and "gallon" in rl,  lambda: f"{tab_avg_gallons:,.1f}"),
+                    ("usage total" in rl and "m³" in rl,                                         f"{tab_q1_usage:.4f}"),
+                    ("project total" in rl,                                                       f"{total_q1_usage:.4f}"),
+                    ("% of usage" in rl,                                                          f"{tab_pct:.4f}"),
+                    ("total water system maintenance" in rl,                                      f"${q1_var_total:,.2f}"),
+                    ("number of days" in rl,                                                      str(q1_days)),
+                    (("total liters" in rl or ("liters" in rl and "total" in rl)) and "average" not in rl,  f"{tab_liters:,.1f}"),
+                    (("total gallons" in rl or ("gallons" in rl and "total" in rl)) and "average" not in rl, f"{tab_gallons:,.1f}"),
+                    ("average daily" in rl and "m³" in rl,                                       f"{tab_avg_m3:.3f}"),
+                    ("average daily" in rl and "liter" in rl,                                    f"{tab_avg_liters:,.1f}"),
+                    ("average daily" in rl and "gallon" in rl,                                   f"{tab_avg_gallons:,.1f}"),
                 ]
-                for (row_match, val_fn) in ROW_VALUES:
-                    if row_match(row_lower):
-                        new_val = val_fn()
-                        for j2 in range(len(row) - 1, -1, -1):
-                            if _val_cell(row[j2]):
-                                updates.append({"range": gspread.utils.rowcol_to_a1(i + 1, j2 + 1), "values": [[new_val]]})
-                                break
+                for (matches, new_val) in ROW_VALUES:
+                    if matches:
+                        cell_a1 = _rightmost_val(row, i)
+                        if cell_a1:
+                            updates.append({"range": cell_a1, "values": [[new_val]]})
                         break
-
-            # ── Specific known cell updates ────────────────────────────────
-            # F24: total project water maintenance costs label + value
-            updates.append({"range": "F24", "values": [[f"${q1_var_total:,.2f}"]]})
-            # Update label for the water maintenance row if still generic
-            r24 = q2_vals[23] if len(q2_vals) > 23 else []
-            for j, cell in enumerate(r24):
-                if re.search(r'(?i)water\s+maintenance\s+costs?', str(cell)):
-                    updates.append({"range": gspread.utils.rowcol_to_a1(24, j + 1),
-                                    "values": [["Total Project Water Maintenance Costs (Q1)"]]})
-                    break
-
-            # D26:E26 (merged) — Beginning QTR Reading date
-            updates.append({"range": "D26", "values": [["6-Jan-2026"]]})
-
-            # F31 — variable subtotal formula: % of usage × total maintenance
-            updates.append({"range": "F31", "values": [["=F30*F24"]]})
-
-            # TOTAL CHARGES — formula: fixed subtotal + variable subtotal
-            for i, row in enumerate(q2_vals):
-                row_str = " ".join(row)
-                if "TOTAL DUE" in row_str or "TOTAL CHARGES" in row_str:
-                    for j in range(len(row) - 1, -1, -1):
-                        val = str(row[j]).replace("$", "").replace(",", "").strip()
-                        try:
-                            float(val)
-                            updates.append({
-                                "range": gspread.utils.rowcol_to_a1(i + 1, j + 1),
-                                "values": [["=F31+F20"]]
-                            })
-                            break
-                        except ValueError:
-                            pass
-                    break
 
             if updates:
                 q2_ws.batch_update(updates, value_input_option="USER_ENTERED")
