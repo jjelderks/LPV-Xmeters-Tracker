@@ -350,6 +350,11 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                     s = re.sub(r'(?i)since\s+meter\s+installation\s+date', 'January 6 \u2013 March 31, 2026', s)
                     s = re.sub(r'(?i)see\s+hoa\s+invoice', 'Upon receipt, see invoice', s)
                     s = re.sub(r'(?i)payment\s+due\s+date\s*:.*', 'Payment due date: Upon receipt, see invoice', s)
+                    s = re.sub(r'(?i)note\s*:\s*usage.based charges begin.*', '', s)
+                    if re.search(r'(?i)^fixed\s+charges\s*$', s.strip()):
+                        s = 'Fixed Charges (Q2)'
+                    if re.search(r'(?i)^variable\s+charges\s*$', s.strip()):
+                        s = 'Variable Charges (Q1)'
                     if s != orig:
                         updates.append({"range": a1(i + 1, j + 1), "values": [[s]]})
 
