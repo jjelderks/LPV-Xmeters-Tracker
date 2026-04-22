@@ -693,7 +693,7 @@ with open(_logo_path, "rb") as _f:
 if st.button("🔄 Refresh data", use_container_width=True):
     load_data.clear()
     load_spike_log.clear()
-    load_variable_costs_total.clear()
+    load_variable_costs.clear()
     st.rerun()
 st.markdown(
     f"<div style='text-align:center; padding:16px 0;'>"
