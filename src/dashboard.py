@@ -129,7 +129,7 @@ def _get_statements_spreadsheet():
 
 def _get_or_create_q2_workbook(client):
     try:
-        return client.open("Q2 water billing")
+        return client.open("Q1-Q2 water billing")
     except gspread.exceptions.SpreadsheetNotFound:
         # Get service account email to show in the error message
         sa_email = ""
@@ -144,8 +144,8 @@ def _get_or_create_q2_workbook(client):
         except Exception:
             pass
         raise RuntimeError(
-            f"Spreadsheet 'Q2 water billing' not found. "
-            f"Please create a blank Google Sheet named exactly 'Q2 water billing' "
+            f"Spreadsheet 'Q1-Q2 water billing' not found. "
+            f"Please create a blank Google Sheet named exactly 'Q1-Q2 water billing' "
             f"in your Google Drive and share it (Editor) with: {sa_email}"
         )
 
@@ -255,21 +255,14 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
         q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
 
-        # Delete any existing Q2 tab in the Q2 workbook
         try:
-            q2_book.del_worksheet(q2_book.worksheet(q2_title))
+            q2_ws = q2_book.worksheet(q2_title)
         except gspread.exceptions.WorksheetNotFound:
-            pass
+            results.append(f"⚠️ {q2_title} — tab not found in Q1-Q2 workbook, skipped")
+            continue
 
         try:
-            # Copy Q1 tab into Q2 workbook preserving formatting
-            props = ws.copy_to(q2_book.id)
-            time.sleep(1)
-            q2_ws = q2_book.get_worksheet_by_id(props["sheetId"])
-            q2_ws.update_title(q2_title)
-            time.sleep(1)
-
-            # Read duplicated values for scanning
+            # Read existing Q2 tab values for scanning
             q2_vals = q2_ws.get_all_values()
             updates  = []  # list of {"range": "A1", "values": [[v]]}
 
