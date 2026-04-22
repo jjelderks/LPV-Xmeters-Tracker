@@ -683,10 +683,10 @@ with tab_billing:
     total_system_usage = billing_df["Usage (m³)"].sum()
     if total_system_usage > 0:
         billing_df["% of Total Usage"] = (billing_df["Usage (m³)"] / total_system_usage * 100).round(2)
-        billing_df["Est. Variable Cost ($)"] = (billing_df["Usage (m³)"] / total_system_usage * q_costs_total).round(2)
+        billing_df["Variable Cost ($)"] = (billing_df["Usage (m³)"] / total_system_usage * q_costs_total).round(2)
     else:
         billing_df["% of Total Usage"] = 0.0
-        billing_df["Est. Variable Cost ($)"] = 0.0
+        billing_df["Variable Cost ($)"] = 0.0
 
     # Beginning reading: initial reading for Q1 2026, else first reading in quarter
     _initial_date = pd.Timestamp("2026-01-06")
@@ -717,7 +717,7 @@ with tab_billing:
     )
     billing_df["Beginning Reading (m³)"] = billing_df["Name"].map(_begin_map)
     billing_df["Ending Reading (m³)"] = billing_df["Name"].map(_end_map)
-    billing_df = billing_df[["Name", "Meter Number", "Beginning Reading (m³)", "Ending Reading (m³)", "Usage (m³)", "% of Total Usage", "Est. Variable Cost ($)"]]
+    billing_df = billing_df[["Name", "Meter Number", "Beginning Reading (m³)", "Ending Reading (m³)", "Usage (m³)", "% of Total Usage", "Variable Cost ($)"]]
 
     billing_df = billing_df.sort_values("Usage (m³)", ascending=False)
     st.dataframe(
@@ -726,7 +726,7 @@ with tab_billing:
             "Ending Reading (m³)": "{:.4f}",
             "Usage (m³)": "{:.4f}",
             "% of Total Usage": "{:.2f}%",
-            "Est. Variable Cost ($)": "${:.2f}",
+            "Variable Cost ($)": "${:.2f}",
         }),
         use_container_width=True,
         hide_index=True,
