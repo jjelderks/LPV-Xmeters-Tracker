@@ -362,10 +362,13 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                     updates.append({"range": a1(i + 1, 4), "values": [["6-Jan-2026"]]})  # col D
                     continue
 
-                # End QTR Reading — value + date
+                # End QTR Reading — value + date (sum all meters in this tab)
                 if "end qtr reading" in rl or "end quarter reading" in rl:
-                    end_val = (f"{float(q1_end_readings[primary_meter]):.4f}"
-                               if primary_meter and primary_meter in q1_end_readings.index else None)
+                    end_total = sum(
+                        float(q1_end_readings[n]) for n in tab_meter_names
+                        if n in q1_end_readings.index
+                    )
+                    end_val = f"{end_total:.4f}" if end_total > 0 else None
                     if end_val:
                         cell_a1 = _rightmost_val(row, i)
                         if cell_a1:
@@ -386,7 +389,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 ROW_VALUES = [
                     ("usage total" in rl and "m³" in rl,                                         f"{tab_q1_usage:.4f}"),
                     ("project total" in rl,                                                       f"{total_q1_usage:.4f}"),
-                    ("% of usage" in rl,                                                          f"{tab_pct:.4f}"),
+                    ("% of usage" in rl,                                                          f"{tab_pct:.2f}%"),
                     ("total water system maintenance" in rl,                                      f"${q1_var_total:,.2f}"),
                     ("number of days" in rl,                                                      str(q1_days)),
                     (("total liters" in rl or ("liters" in rl and "total" in rl)) and "average" not in rl,  f"{tab_liters:,.1f}"),
@@ -406,7 +409,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 q2_ws.batch_update(updates, value_input_option="USER_ENTERED")
 
             results.append(
-                f"✅ {title} — Q1 var cost: ${tab_var_cost:,.2f} ({tab_pct:.2f}%)"
+                f"✅ {title} — usage: {tab_q1_usage:.3f} m³ ({tab_pct:.2f}% of project)"
             )
 
         except Exception as e:
