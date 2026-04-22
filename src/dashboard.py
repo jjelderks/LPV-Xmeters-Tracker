@@ -243,25 +243,48 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
             q2_vals = q2_ws.get_all_values()
             updates  = []  # list of {"range": "A1", "values": [[v]]}
 
+            # Value map: row keyword(s) → computed value string
+            # Checked against the rightmost non-label cell in each matching row
+            def _val_cell(cs):
+                """True if a cell looks like a value slot (no letters = not label/date)."""
+                return not re.search(r'[a-zA-Z]', cs.strip())
+
+            ROW_VALUES = [
+                (lambda rl: "end qtr reading" in rl or "end quarter reading" in rl,
+                 lambda: f"{float(q1_end_readings[primary_meter]):.4f}" if primary_meter and primary_meter in q1_end_readings.index else None),
+                (lambda rl: "usage total" in rl and "m³" in rl,
+                 lambda: f"{tab_q1_usage:.4f}"),
+                (lambda rl: "project total" in rl,
+                 lambda: f"{total_q1_usage:.4f}"),
+                (lambda rl: "% of usage" in rl,
+                 lambda: f"{tab_pct:.2f}%"),
+                (lambda rl: "subtotal" in rl and "total charges" not in rl and "total water" not in rl,
+                 lambda: f"${tab_var_cost:,.2f}"),
+                (lambda rl: "total water system maintenance" in rl,
+                 lambda: f"${q1_var_total:,.2f}"),
+                (lambda rl: "number of days" in rl,
+                 lambda: str(q1_days)),
+                (lambda rl: ("total liters" in rl or ("liters" in rl and "total" in rl)) and "average" not in rl,
+                 lambda: f"{tab_liters:,.1f}"),
+                (lambda rl: ("total gallons" in rl or ("gallons" in rl and "total" in rl)) and "average" not in rl,
+                 lambda: f"{tab_gallons:,.1f}"),
+                (lambda rl: "average daily" in rl and "m³" in rl,
+                 lambda: f"{tab_avg_m3:.3f}"),
+                (lambda rl: "average daily" in rl and "liter" in rl,
+                 lambda: f"{tab_avg_liters:,.1f}"),
+                (lambda rl: "average daily" in rl and "gallon" in rl,
+                 lambda: f"{tab_avg_gallons:,.1f}"),
+            ]
+
             for i, row in enumerate(q2_vals):
                 row_lower = " ".join(row).lower()
 
+                # ── Text replacements (cell-level) ─────────────────────────
                 for j, cell in enumerate(row):
                     s        = str(cell)
                     original = s
                     a1       = gspread.utils.rowcol_to_a1(i + 1, j + 1)
 
-                    # ── End QTR reading — fill in Mar 31 value (date stays as-is) ──
-                    if ("end qtr reading" in row_lower or "end quarter reading" in row_lower) and primary_meter:
-                        cell_stripped = s.strip().replace(",", "")
-                        is_empty_or_zero = cell_stripped in ("", "0", "0.0", "0.00", "0.0000")
-                        is_numeric = re.match(r'^\d+\.\d+$', cell_stripped) is not None
-                        if (is_empty_or_zero or is_numeric) and not re.search(r'(?i)mar|apr|jun|jan|reading', s):
-                            val = q1_end_readings.get(primary_meter)
-                            if val is not None:
-                                s = f"{float(val):.4f}"
-
-                    # ── Text replacements ──────────────────────────────────
                     s = re.sub(r'\bQ1\b', 'Q2', s)
                     s = s.replace("January 1 - March 31, 2026", "April 1 - June 30, 2026")
                     s = s.replace("Jan. 1 - Mar. 31, 2026",     "Apr. 1 - Jun. 30, 2026")
@@ -269,56 +292,34 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                         r'(Jan(?:uary)?|Feb(?:ruary)?)\s+\d{1,2},?\s+2026',
                         'April 1, 2026', s
                     )
-
-                    # ── Usage section label ────────────────────────────────
                     s = re.sub(
                         r'(?i)since\s+meter\s+installation\s+date',
                         'January 6 – March 31, 2026',
                         s
                     )
 
-                    # ── % of Usage and subtotal (handles NA, 0.00%, $0.00) ───
-                    if "% of usage" in row_lower and (s.strip().upper() == "NA" or re.match(r'^\d+\.\d+%$', s.strip())):
-                        s = f"{tab_pct:.2f}%"
-                    elif "subtotal" in row_lower and (s.strip().upper() == "NA" or re.match(r'^\$[\d,\.]+$', s.strip().replace(" ", ""))):
-                        s = f"${tab_var_cost:,.2f}"
-
-                    # ── Total variable cost for the year ──────────────────
-                    elif "total water system maintenance" in row_lower and re.match(r'^\$[\s\d,\.\-]+$', s.strip()):
-                        s = f"${q1_var_total:,.2f}"
-
-                    # ── Usage Information numeric fields ───────────────────
-                    stripped = s.replace(",", "").strip()
-                    if re.match(r'^\d+$', stripped) and "number of days" in row_lower:
-                        s = str(q1_days)
-                    elif re.match(r'^[\d]+\.[\d]+$', stripped):
-                        try:
-                            float(stripped)
-                            if "total liters" in row_lower or \
-                               ("liters" in row_lower and "total" in row_lower and "average" not in row_lower):
-                                s = f"{tab_liters:,.1f}"
-                            elif "total gallons" in row_lower or \
-                                 ("gallons" in row_lower and "total" in row_lower and "average" not in row_lower):
-                                s = f"{tab_gallons:,.1f}"
-                            elif "average daily" in row_lower and "m³" in row_lower:
-                                s = f"{tab_avg_m3:.3f}"
-                            elif "average daily" in row_lower and "liter" in row_lower:
-                                s = f"{tab_avg_liters:,.1f}"
-                            elif "average daily" in row_lower and "gallon" in row_lower:
-                                s = f"{tab_avg_gallons:,.1f}"
-                            elif "usage total" in row_lower and "m³" in row_lower:
-                                s = f"{tab_q1_usage:.4f}"
-                            elif "project total" in row_lower:
-                                s = f"{total_q1_usage:.4f}"
-                        except ValueError:
-                            pass
-
                     if s != original:
                         updates.append({"range": a1, "values": [[s]]})
 
-            # ── Update TOTAL DUE to include variable cost ──────────────────
+                # ── Row-level value fills ──────────────────────────────────
+                for (row_match, val_fn) in ROW_VALUES:
+                    if row_match(row_lower):
+                        new_val = val_fn()
+                        if new_val is None:
+                            break
+                        # Find rightmost value-slot cell (no letters)
+                        for j2 in range(len(row) - 1, -1, -1):
+                            if _val_cell(row[j2]):
+                                a1_2 = gspread.utils.rowcol_to_a1(i + 1, j2 + 1)
+                                if row[j2].strip() != new_val:
+                                    updates.append({"range": a1_2, "values": [[new_val]]})
+                                break
+                        break
+
+            # ── Update TOTAL CHARGES to include variable cost ──────────────
             for i, row in enumerate(q2_vals):
-                if "TOTAL DUE" in " ".join(row):
+                row_str = " ".join(row)
+                if "TOTAL DUE" in row_str or "TOTAL CHARGES" in row_str:
                     for j in range(len(row) - 1, -1, -1):
                         val = str(row[j]).replace("$", "").replace(",", "").strip()
                         try:
