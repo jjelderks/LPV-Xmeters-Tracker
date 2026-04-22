@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "../config/.env"))
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 BILLING_SHEET_ID    = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"
 STATEMENTS_SHEET_ID = "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o"
 NON_BILLING_TABS    = {"Master Data", "Initial Reading", "Sheet1"}
