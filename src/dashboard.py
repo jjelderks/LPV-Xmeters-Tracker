@@ -203,14 +203,16 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
     q2_book    = _get_or_create_q2_workbook(client)
     results    = []
 
-    # Build a lookup of Q1 tabs by normalised name (lowercase, no spaces)
+    # Build a lookup of Q1 tabs + pre-load all values to avoid reads inside the main loop
     q1_tabs = {}
     for ws in spreadsheet.worksheets():
         if ws.title in NON_BILLING_TABS:
             continue
         if not re.search(r'q1', ws.title, re.IGNORECASE):
             continue
-        q1_tabs[ws.title.lower().replace(" ", "")] = ws
+        vals = ws.get_all_values()
+        time.sleep(1)
+        q1_tabs[ws.title.lower().replace(" ", "")] = (ws, vals)
 
     # Iterate over tabs that actually exist in the Q1-Q2 workbook
     for q2_ws in q2_book.worksheets():
@@ -225,20 +227,19 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         q1_key = q1_title_guess.lower().replace(" ", "")
 
         # Try exact match first, then case-insensitive
-        ws = q1_tabs.get(q1_key)
-        if ws is None:
-            # Try matching any Q1 tab that maps to a similar Q2 name
-            for k, v in q1_tabs.items():
-                derived = re.sub(r'(?i)q1', 'q2', v.title, count=1).lower().replace(" ", "")
+        q1_entry = q1_tabs.get(q1_key)
+        if q1_entry is None:
+            for k, (v_ws, v_vals) in q1_tabs.items():
+                derived = re.sub(r'(?i)q1', 'q2', v_ws.title, count=1).lower().replace(" ", "")
                 if derived == title.lower().replace(" ", ""):
-                    ws = v
+                    q1_entry = (v_ws, v_vals)
                     break
 
-        if ws is None:
+        if q1_entry is None:
             results.append(f"⚠️ {title} — no matching Q1 tab found in statements, skipped")
             continue
 
-        values = ws.get_all_values()
+        ws, values = q1_entry
         if not values:
             continue
 
@@ -384,7 +385,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         except Exception as e:
             results.append(f"❌ {ws.title}: {e}")
 
-        time.sleep(2)  # stay under Sheets API quota
+        time.sleep(4)  # stay under Sheets API quota (60 reads/min)
 
     return results, q1_var_total
 
