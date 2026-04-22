@@ -127,13 +127,27 @@ def _make_gspread_client():
 def _get_statements_spreadsheet():
     return _make_gspread_client().open_by_key(STATEMENTS_SHEET_ID)
 
-def _get_or_create_q2_workbook(client, user_email="joel.jelderks@gmail.com"):
+def _get_or_create_q2_workbook(client):
     try:
         return client.open("Q2 water billing")
     except gspread.exceptions.SpreadsheetNotFound:
-        book = client.create("Q2 water billing")
-        book.share(user_email, perm_type="user", role="writer")
-        return book
+        # Get service account email to show in the error message
+        sa_email = ""
+        try:
+            if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
+                import json
+                sa_email = json.loads(st.secrets["GOOGLE_CREDENTIALS_JSON"]).get("client_email", "")
+            else:
+                import json
+                with open(os.environ["GOOGLE_CREDENTIALS_FILE"]) as f:
+                    sa_email = json.load(f).get("client_email", "")
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Spreadsheet 'Q2 water billing' not found. "
+            f"Please create a blank Google Sheet named exactly 'Q2 water billing' "
+            f"in your Google Drive and share it (Editor) with: {sa_email}"
+        )
 
 
 def _get_q1_usage_per_meter(daily_df, summary_df):
