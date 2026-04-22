@@ -191,11 +191,12 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
         # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
         q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
 
-        # Delete existing Q2 tab if present
-        try:
-            spreadsheet.del_worksheet(spreadsheet.worksheet(q2_title))
-        except gspread.exceptions.WorksheetNotFound:
-            pass
+        # Delete any existing Q2 tabs (new or old format)
+        for old_title in [q2_title, f"{ws.title} - Q2"]:
+            try:
+                spreadsheet.del_worksheet(spreadsheet.worksheet(old_title))
+            except gspread.exceptions.WorksheetNotFound:
+                pass
 
         try:
             # Duplicate preserving all formatting, images, and logos
