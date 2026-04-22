@@ -192,14 +192,35 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 short = str(cell).strip().lstrip("0")
                 if short in meter_to_name:
                     tab_meter_names.add(meter_to_name[short])
+
+        # Fallback: match by initial reading value (handles tabs where Meter ID shows "-")
+        if not tab_meter_names:
+            _init_map = {
+                round(pd.to_numeric(r["Initial Reading (m³)"], errors="coerce"), 4): r["Name"]
+                for _, r in summary_df.iterrows()
+                if str(r.get("Initial Reading (m³)", "")).strip()
+            }
+            for _row in values:
+                _row_str = " ".join(str(c) for c in _row).lower()
+                if "beginning qtr reading" in _row_str:
+                    for _cell in _row:
+                        try:
+                            _val = round(float(str(_cell).strip()), 4)
+                            if _val in _init_map:
+                                tab_meter_names.add(_init_map[_val])
+                        except (ValueError, TypeError):
+                            pass
+
         primary_meter = next(iter(tab_meter_names), None)
 
-        tab_q1_usage  = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
-        tab_pct        = round(tab_q1_usage / total_q1_usage * 100 if total_q1_usage > 0 else 0.0, 2)
-        tab_var_cost   = round(tab_q1_usage / total_q1_usage * q1_var_total if total_q1_usage > 0 else 0.0, 2)
-        tab_liters     = round(tab_q1_usage * 1000, 1)
-        tab_gallons    = round(tab_q1_usage * 264.172, 1)
-        tab_avg_m3     = round(tab_q1_usage / q1_days, 3)
+        tab_q1_usage    = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
+        tab_pct         = round(tab_q1_usage / total_q1_usage * 100 if total_q1_usage > 0 else 0.0, 2)
+        tab_var_cost    = round(tab_q1_usage / total_q1_usage * q1_var_total if total_q1_usage > 0 else 0.0, 2)
+        tab_liters      = round(tab_q1_usage * 1000, 1)
+        tab_gallons     = round(tab_q1_usage * 264.172, 1)
+        tab_avg_m3      = round(tab_q1_usage / q1_days, 3)
+        tab_avg_liters  = round(tab_liters / q1_days, 1)
+        tab_avg_gallons = round(tab_gallons / q1_days, 1)
 
         # Derive Q2 tab name from Q1 tab name (e.g. lot1-q126 → lot1-q226)
         q2_title = re.sub(r'(?i)q1', 'Q2', ws.title, count=1)
@@ -262,12 +283,15 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                         s
                     )
 
-                    # ── Fill existing NA fields ────────────────────────────
-                    if s.strip().upper() == "NA":
-                        if "% of usage" in row_lower:
-                            s = f"{tab_pct:.2f}%"
-                        elif "subtotal" in row_lower:
-                            s = f"${tab_var_cost:,.2f}"
+                    # ── % of Usage and subtotal (handles NA, 0.00%, $0.00) ───
+                    if "% of usage" in row_lower and (s.strip().upper() == "NA" or re.match(r'^\d+\.\d+%$', s.strip())):
+                        s = f"{tab_pct:.2f}%"
+                    elif "subtotal" in row_lower and (s.strip().upper() == "NA" or re.match(r'^\$[\d,\.]+$', s.strip().replace(" ", ""))):
+                        s = f"${tab_var_cost:,.2f}"
+
+                    # ── Total variable cost for the year ──────────────────
+                    elif "total water system maintenance" in row_lower and re.match(r'^\$[\s\d,\.\-]+$', s.strip()):
+                        s = f"${q1_var_total:,.2f}"
 
                     # ── Usage Information numeric fields ───────────────────
                     stripped = s.replace(",", "").strip()
@@ -277,15 +301,21 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                         try:
                             float(stripped)
                             if "total liters" in row_lower or \
-                               ("liters" in row_lower and "total" in row_lower):
+                               ("liters" in row_lower and "total" in row_lower and "average" not in row_lower):
                                 s = f"{tab_liters:,.1f}"
                             elif "total gallons" in row_lower or \
-                                 ("gallons" in row_lower and "total" in row_lower):
+                                 ("gallons" in row_lower and "total" in row_lower and "average" not in row_lower):
                                 s = f"{tab_gallons:,.1f}"
                             elif "average daily" in row_lower and "m³" in row_lower:
                                 s = f"{tab_avg_m3:.3f}"
+                            elif "average daily" in row_lower and "liter" in row_lower:
+                                s = f"{tab_avg_liters:,.1f}"
+                            elif "average daily" in row_lower and "gallon" in row_lower:
+                                s = f"{tab_avg_gallons:,.1f}"
                             elif "usage total" in row_lower and "m³" in row_lower:
                                 s = f"{tab_q1_usage:.4f}"
+                            elif "project total" in row_lower:
+                                s = f"{total_q1_usage:.4f}"
                         except ValueError:
                             pass
 
