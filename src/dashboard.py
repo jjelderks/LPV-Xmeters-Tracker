@@ -346,7 +346,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
     return results, q1_var_total
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600)
 def load_spike_log():
     try:
         spreadsheet = _get_gspread_client()
