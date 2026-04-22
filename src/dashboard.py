@@ -379,11 +379,11 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 q2_ws.batch_update(updates, value_input_option="USER_ENTERED")
 
             results.append(
-                f"✅ {q2_title} — Q1 var cost: ${tab_var_cost:,.2f} ({tab_pct:.2f}%)"
+                f"✅ {title} — Q1 var cost: ${tab_var_cost:,.2f} ({tab_pct:.2f}%)"
             )
 
         except Exception as e:
-            results.append(f"❌ {ws.title}: {e}")
+            results.append(f"❌ {title}: {e}")
 
         time.sleep(4)  # stay under Sheets API quota (60 reads/min)
 
