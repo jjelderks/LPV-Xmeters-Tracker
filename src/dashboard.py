@@ -285,6 +285,15 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
             q2_vals = q2_ws.get_all_values()
             updates  = []  # list of {"range": "A1", "values": [[v]]}
 
+            # Fix #REF! cells by substituting the corresponding Q1 cell value
+            for i, row in enumerate(q2_vals):
+                for j, cell in enumerate(row):
+                    if str(cell).strip() == "#REF!":
+                        q1_val = values[i][j] if i < len(values) and j < len(values[i]) else ""
+                        a1 = gspread.utils.rowcol_to_a1(i + 1, j + 1)
+                        updates.append({"range": a1, "values": [[q1_val]]})
+                        q2_vals[i][j] = q1_val  # update local copy for downstream logic
+
             # Value map: row keyword(s) → computed value string
             # Checked against the rightmost non-label cell in each matching row
             def _val_cell(cs):
