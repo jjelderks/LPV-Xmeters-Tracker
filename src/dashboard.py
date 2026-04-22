@@ -335,7 +335,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
             # ── Row scanning ───────────────────────────────────────────────
             in_variable_section = False
             for i, row in enumerate(q2_vals):
-                rl = " ".join(row).lower()
+                rl = " ".join(row).lower().replace('\xa0', ' ').replace('\u00b3', '3')
 
                 if "variable charges" in rl:
                     in_variable_section = True
@@ -393,7 +393,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
 
                 # Other value fills
                 ROW_VALUES = [
-                    ("usage total" in rl and "m³" in rl,                                         f"{tab_q1_usage:.4f}"),
+                    ("usage total" in rl and ("m3" in rl or "m³" in rl),                          f"{tab_q1_usage:.4f}"),
                     ("project total" in rl,                                                       f"{total_q1_usage:.4f}"),
                     ("% of usage" in rl,                                                          f"{tab_pct:.2f}%"),
                     ("total water system maintenance" in rl,                                      f"${q1_var_total:,.2f}"),
@@ -415,7 +415,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 q2_ws.batch_update(updates, value_input_option="USER_ENTERED")
 
             results.append(
-                f"✅ {title} — usage: {tab_q1_usage:.3f} m³ ({tab_pct:.2f}% of project)"
+                f"✅ {title} — {len(updates)} cells updated, usage: {tab_q1_usage:.3f} m³ ({tab_pct:.2f}%)"
             )
 
         except Exception as e:
