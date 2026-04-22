@@ -318,6 +318,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
 
             # ── Known cell addresses (user-specified) ──────────────────────
             updates.extend([
+                {"range": "F16", "values": [["Costs"]]},
                 {"range": "F20", "values": [["=SUM(F17:F19)"]]},
                 {"range": "F24", "values": [[f"${q1_var_total:,.2f}"]]},
                 {"range": "D26", "values": [["6-Jan-2026"]]},
