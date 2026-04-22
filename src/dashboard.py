@@ -5,6 +5,7 @@ Run: streamlit run src/dashboard.py
 import os
 import sys
 import base64
+import time
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -342,6 +343,8 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
 
         except Exception as e:
             results.append(f"❌ {ws.title}: {e}")
+
+        time.sleep(2)  # stay under Sheets API quota
 
     return results, q1_var_total
 
