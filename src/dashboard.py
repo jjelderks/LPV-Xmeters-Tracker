@@ -396,6 +396,25 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
 
         time.sleep(4)  # stay under Sheets API quota (60 reads/min)
 
+    # Reorder tabs: Lot1, Lot3...Lot26, then LotS1...LotS9, then Casita, then anything else
+    def _tab_order(ws):
+        t = ws.title.lower()
+        m_s  = re.match(r'lots(\d+)', t)
+        m_lot = re.match(r'lot(\d+)', t)
+        if m_s:
+            return (1, int(m_s.group(1)), 0)
+        if m_lot:
+            return (0, int(m_lot.group(1)), 0)
+        if 'casita' in t:
+            return (2, 0, 0)
+        return (3, 0, 0)
+
+    try:
+        ordered = sorted(q2_book.worksheets(), key=_tab_order)
+        q2_book.reorder_worksheets(ordered)
+    except Exception as e:
+        results.append(f"⚠️ Tab reorder failed: {e}")
+
     return results, q1_var_total
 
 
