@@ -143,6 +143,18 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
     total_q1_usage = q1_usage.sum()
     q1_days        = 84  # Jan 6 → Mar 31
 
+    # Q1 end readings (Mar 31) and Q2 begin readings (Apr 1)
+    _q1_end_dt = pd.Timestamp("2026-03-31")
+    _q2_begin_dt = pd.Timestamp("2026-04-01")
+    q1_end_readings = (
+        daily_df[daily_df["Date"] == _q1_end_dt]
+        .set_index("Name")["Total Flow (m³)"]
+    )
+    q2_begin_readings = (
+        daily_df[daily_df["Date"] == _q2_begin_dt]
+        .set_index("Name")["Total Flow (m³)"]
+    )
+
     q1_var_total = (
         variable_costs_df[
             (variable_costs_df["Date"] >= pd.Timestamp("2026-01-01")) &
@@ -180,6 +192,7 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                 short = str(cell).strip().lstrip("0")
                 if short in meter_to_name:
                     tab_meter_names.add(meter_to_name[short])
+        primary_meter = next(iter(tab_meter_names), None)
 
         tab_q1_usage  = sum(float(q1_usage.get(n, 0)) for n in tab_meter_names)
         tab_pct        = round(tab_q1_usage / total_q1_usage * 100 if total_q1_usage > 0 else 0.0, 2)
@@ -216,6 +229,22 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                     s        = str(cell)
                     original = s
                     a1       = gspread.utils.rowcol_to_a1(i + 1, j + 1)
+
+                    # ── Beginning/End QTR reading rows ────────────────────
+                    if "beginning qtr reading" in row_lower or "beginning quarter reading" in row_lower:
+                        if re.search(r'(?i)\bjan\b|6-jan|jan.*6', s):
+                            s = "1-Apr-2026"
+                        elif re.match(r'^\d+\.\d{3,}$', s.replace(",", "")) and primary_meter:
+                            val = q2_begin_readings.get(primary_meter)
+                            if val is not None:
+                                s = f"{float(val):.4f}"
+                    elif "end qtr reading" in row_lower or "end quarter reading" in row_lower:
+                        if re.search(r'(?i)\bmar\b|31-mar|mar.*31', s):
+                            s = "30-Jun-2026"
+                        elif re.match(r'^\d+\.\d{3,}$', s.replace(",", "")) and primary_meter:
+                            val = q1_end_readings.get(primary_meter)
+                            if val is not None:
+                                s = f"{float(val):.4f}"
 
                     # ── Text replacements ──────────────────────────────────
                     s = re.sub(r'\bQ1\b', 'Q2', s)
@@ -634,9 +663,42 @@ with tab_billing:
         billing_df["% of Total Usage"] = 0.0
         billing_df["Est. Variable Cost ($)"] = 0.0
 
+    # Beginning reading: initial reading for Q1 2026, else first reading in quarter
+    _initial_date = pd.Timestamp("2026-01-06")
+    if q_start <= _initial_date:
+        _begin_map = (
+            summary_df.set_index("Name")["Initial Reading (m³)"]
+            .apply(pd.to_numeric, errors="coerce")
+            .to_dict()
+        )
+    else:
+        _begin_map = (
+            daily_df[daily_df["Date"] >= q_start]
+            .sort_values("Date")
+            .groupby("Name")
+            .first()["Total Flow (m³)"]
+            .to_dict()
+        )
+    # Ending reading: last available reading within the quarter
+    _end_map = (
+        daily_df[
+            (daily_df["Date"] >= q_start) &
+            (daily_df["Date"] <= q_end)
+        ]
+        .sort_values("Date")
+        .groupby("Name")
+        .last()["Total Flow (m³)"]
+        .to_dict()
+    )
+    billing_df["Beginning Reading (m³)"] = billing_df["Name"].map(_begin_map)
+    billing_df["Ending Reading (m³)"] = billing_df["Name"].map(_end_map)
+    billing_df = billing_df[["Name", "Meter Number", "Beginning Reading (m³)", "Ending Reading (m³)", "Usage (m³)", "% of Total Usage", "Est. Variable Cost ($)"]]
+
     billing_df = billing_df.sort_values("Usage (m³)", ascending=False)
     st.dataframe(
         billing_df.style.format({
+            "Beginning Reading (m³)": "{:.4f}",
+            "Ending Reading (m³)": "{:.4f}",
             "Usage (m³)": "{:.4f}",
             "% of Total Usage": "{:.2f}%",
             "Est. Variable Cost ($)": "${:.2f}",
@@ -650,38 +712,49 @@ with tab_billing:
     )
 
     st.divider()
-    with st.expander("⚙️ Admin — Generate Q2 Billing Tabs", expanded=False):
-        st.caption(
-            "Creates Q2 billing tabs in the LPV Water Meter Readings spreadsheet. "
-            "Each tab includes Q2 fixed costs (forward-billed) and Q1 variable costs (backward-billed). "
-            "Safe to re-run — existing Q2 tabs will be overwritten."
-        )
+    if not st.session_state.get("admin_authenticated"):
+        with st.expander("⚙️ Admin", expanded=False):
+            admin_pw = st.text_input("Admin password", type="password", key="admin_pw_input")
+            if st.button("Unlock"):
+                valid_admin = st.secrets.get("ADMIN_PASSWORD", os.environ.get("ADMIN_PASSWORD", ""))
+                if admin_pw == valid_admin and valid_admin:
+                    st.session_state["admin_authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password")
+    else:
+        with st.expander("⚙️ Admin — Generate Q2 Billing Tabs", expanded=False):
+            st.caption(
+                "Creates Q2 billing tabs in the LPV Water Meter Readings spreadsheet. "
+                "Each tab includes Q2 fixed costs (forward-billed) and Q1 variable costs (backward-billed). "
+                "Safe to re-run — existing Q2 tabs will be overwritten."
+            )
 
-        if st.button("🔍 List billing tabs (diagnostic)"):
-            try:
-                spreadsheet = _get_statements_spreadsheet()
-                titles = [ws.title for ws in spreadsheet.worksheets()]
-                st.write("**All tabs found:**")
-                for t in titles:
-                    st.code(t)
-            except Exception as e:
-                st.error(f"Error connecting to spreadsheet: {e}")
-
-        if st.button("Generate Q2 Billing Tabs", type="primary"):
-            with st.spinner("Generating Q2 tabs…"):
+            if st.button("🔍 List billing tabs (diagnostic)"):
                 try:
-                    results, q1_var_total = generate_q2_billing_tabs(
-                        daily_df, summary_df, variable_costs_df
-                    )
-                    st.success(f"Done! Q1 variable costs total used: **${q1_var_total:,.2f}**")
-                    for r in results:
-                        st.write(r)
-                    st.markdown(
-                        "📋 [Open LPV Water Meter Readings](https://docs.google.com/spreadsheets/d/"
-                        "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o/edit)"
-                    )
+                    spreadsheet = _get_statements_spreadsheet()
+                    titles = [ws.title for ws in spreadsheet.worksheets()]
+                    st.write("**All tabs found:**")
+                    for t in titles:
+                        st.code(t)
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error connecting to spreadsheet: {e}")
+
+            if st.button("Generate Q2 Billing Tabs", type="primary"):
+                with st.spinner("Generating Q2 tabs…"):
+                    try:
+                        results, q1_var_total = generate_q2_billing_tabs(
+                            daily_df, summary_df, variable_costs_df
+                        )
+                        st.success(f"Done! Q1 variable costs total used: **${q1_var_total:,.2f}**")
+                        for r in results:
+                            st.write(r)
+                        st.markdown(
+                            "📋 [Open LPV Water Meter Readings](https://docs.google.com/spreadsheets/d/"
+                            "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o/edit)"
+                        )
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
 # ================================================================
 # FOOTER
