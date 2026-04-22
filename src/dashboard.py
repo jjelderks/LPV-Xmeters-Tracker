@@ -251,18 +251,12 @@ def generate_q2_billing_tabs(daily_df, summary_df, variable_costs_df):
                     original = s
                     a1       = gspread.utils.rowcol_to_a1(i + 1, j + 1)
 
-                    # ── Beginning/End QTR reading rows ────────────────────
-                    if "beginning qtr reading" in row_lower or "beginning quarter reading" in row_lower:
-                        if re.search(r'(?i)\bjan\b|6-jan|jan.*6', s):
-                            s = "1-Apr-2026"
-                        elif re.match(r'^\d+\.\d{3,}$', s.replace(",", "")) and primary_meter:
-                            val = q2_begin_readings.get(primary_meter)
-                            if val is not None:
-                                s = f"{float(val):.4f}"
-                    elif "end qtr reading" in row_lower or "end quarter reading" in row_lower:
-                        if re.search(r'(?i)\bmar\b|31-mar|mar.*31', s):
-                            s = "30-Jun-2026"
-                        elif re.match(r'^\d+\.\d{3,}$', s.replace(",", "")) and primary_meter:
+                    # ── End QTR reading — fill in Mar 31 value (date stays as-is) ──
+                    if ("end qtr reading" in row_lower or "end quarter reading" in row_lower) and primary_meter:
+                        cell_stripped = s.strip().replace(",", "")
+                        is_empty_or_zero = cell_stripped in ("", "0", "0.0", "0.00", "0.0000")
+                        is_numeric = re.match(r'^\d+\.\d+$', cell_stripped) is not None
+                        if (is_empty_or_zero or is_numeric) and not re.search(r'(?i)mar|apr|jun|jan|reading', s):
                             val = q1_end_readings.get(primary_meter)
                             if val is not None:
                                 s = f"{float(val):.4f}"
