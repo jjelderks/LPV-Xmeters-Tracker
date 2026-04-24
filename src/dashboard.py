@@ -278,6 +278,7 @@ with tab_usage:
             color="Name",
             markers=True,
             labels={"Daily Usage (m³)": "Daily Usage (m³)", "Date": "Date"},
+            render_mode="svg",
         )
         fig_line.update_layout(hovermode="x unified")
         st.plotly_chart(fig_line, use_container_width=True)
