@@ -25,8 +25,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Track usage from Feb 28 onward
 USAGE_START_DATE = "2026-02-25"
+LAST_CHECK_FILE  = os.path.join(os.path.dirname(__file__), "../data/last_spike_check.txt")
+
+
+def _get_last_checked_date():
+    try:
+        with open(LAST_CHECK_FILE) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+def _set_last_checked_date(date_str):
+    with open(LAST_CHECK_FILE, "w") as f:
+        f.write(date_str)
 
 
 def run():
@@ -63,9 +76,24 @@ def run():
     writer.write_daily_readings(readings)
     writer.write_summary(readings, initials)
 
-    # Check alerts and send WhatsApp notifications
-    logger.info("Checking alerts...")
-    check_alerts(readings, sheets_writer=writer, min_thresholds=min_thresholds, max_thresholds=max_thresholds)
+    # Determine which dates need spike checking (backfill any missed days)
+    all_dates = sorted({r["date"] for r in readings})
+    last_checked = _get_last_checked_date()
+    if last_checked:
+        check_dates = [d for d in all_dates if d > last_checked]
+    else:
+        check_dates = [all_dates[-1]] if all_dates else []
+
+    if len(check_dates) > 1:
+        logger.info(f"Backfilling spike check for {len(check_dates)} dates ({check_dates[0]} → {check_dates[-1]})...")
+    else:
+        logger.info("Checking alerts...")
+
+    check_alerts(readings, check_dates=check_dates, sheets_writer=writer,
+                 min_thresholds=min_thresholds, max_thresholds=max_thresholds)
+
+    if all_dates:
+        _set_last_checked_date(all_dates[-1])
 
     logger.info("Done.")
 

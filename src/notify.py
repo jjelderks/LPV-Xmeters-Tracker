@@ -47,37 +47,50 @@ def clean_average(daily_usages: list[float]) -> float:
     return sum(filtered) / len(filtered) if filtered else sum(non_zero) / len(non_zero)
 
 
-def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
+def check_alerts(readings: list[dict], check_dates: list[str] = None, sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
     """
-    Send WhatsApp alert when either:
-    - Usage > 2.5x clean mean AND > min alert threshold (if set), OR
-    - Usage > max daily threshold (unconditional, if set)
+    Check spike alerts for one or more dates and log/alert accordingly.
+
+    check_dates: sorted list of dates to evaluate. Only the last date triggers
+    WhatsApp. Older dates are backfilled into the Spike Log silently.
+    Defaults to the single most recent date in readings.
     """
     from collections import defaultdict
+    from datetime import datetime, timedelta
 
-    # Use the most recent date in the data (works regardless of run time)
-    yesterday = max(r["date"] for r in readings)
+    all_dates = sorted({r["date"] for r in readings})
+    if not all_dates:
+        return
+
+    if check_dates is None:
+        check_dates = [all_dates[-1]]
+
+    alert_date = check_dates[-1]  # only this date sends WhatsApp
 
     by_meter = defaultdict(list)
     for r in readings:
         by_meter[r["name"]].append(r)
 
-    spike_alerts = []
+    total_alerted = 0
 
-    for name, rows in by_meter.items():
-        # All historical daily usages except the most recent date (to build clean baseline)
-        historical = [r["daily_usage"] for r in rows
-                      if r["daily_usage"] > 0 and r["date"] != yesterday]
-        if not historical:
-            continue
+    for check_date in check_dates:
+        spike_alerts = []
 
-        avg_daily = clean_average(historical)
-        threshold = avg_daily * 2.5
+        for name, rows in by_meter.items():
+            # Build baseline from all data strictly before this date
+            historical = [r["daily_usage"] for r in rows
+                          if r["daily_usage"] > 0 and r["date"] < check_date]
+            if not historical:
+                continue
 
-        # Check yesterday's reading against the clean mean
-        yesterday_rows = [r for r in rows if r["date"] == yesterday]
-        if yesterday_rows:
-            usage = yesterday_rows[0]["daily_usage"]
+            avg_daily = clean_average(historical)
+            threshold = avg_daily * 2.5
+
+            date_rows = [r for r in rows if r["date"] == check_date]
+            if not date_rows:
+                continue
+
+            usage = date_rows[0]["daily_usage"]
             min_alert = (min_thresholds or {}).get(name, 0.0)
             max_daily = (max_thresholds or {}).get(name, 0.0)
             over_avg = usage > threshold and usage > min_alert
@@ -94,33 +107,37 @@ def check_alerts(readings: list[dict], sheets_writer=None, min_thresholds: dict 
                     "usage": usage,
                     "normal_avg": avg_daily,
                     "threshold": threshold,
-                    "date": yesterday,
+                    "date": check_date,
                     "trigger": trigger,
                 })
 
-    if spike_alerts:
-        for recipient in RECIPIENTS:
-            filtered = [
-                s for s in spike_alerts
-                if recipient["meters"] is None or s["meter"] in recipient["meters"]
-            ]
-            if filtered:
-                from datetime import datetime, timedelta
-                period_start = (datetime.strptime(yesterday, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
-                msg = (
-                    "⚠️ LPV Water - HIGH USAGE ALERT\n"
-                    f"Period: {period_start} ~16:30 → {yesterday} ~16:30\n"
-                    + "\n".join(
-                        f"  • {s['meter']}: {s['usage']:.2f} m³ ({s['trigger']})"
-                        for s in filtered
+        # Send WhatsApp only for the most recent date
+        if spike_alerts and check_date == alert_date:
+            for recipient in RECIPIENTS:
+                filtered = [
+                    s for s in spike_alerts
+                    if recipient["meters"] is None or s["meter"] in recipient["meters"]
+                ]
+                if filtered:
+                    period_start = (datetime.strptime(check_date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+                    msg = (
+                        "⚠️ LPV Water - HIGH USAGE ALERT\n"
+                        f"Period: {period_start} ~16:30 → {check_date} ~16:30\n"
+                        + "\n".join(
+                            f"  • {s['meter']}: {s['usage']:.2f} m³ ({s['trigger']})"
+                            for s in filtered
+                        )
                     )
-                )
-                send_whatsapp(msg, recipient["phone"], recipient["apikey"])
-        logger.info(f"Spike alerts sent for {len(spike_alerts)} meters.")
+                    send_whatsapp(msg, recipient["phone"], recipient["apikey"])
+            total_alerted += len(spike_alerts)
+            logger.info(f"Spike alerts sent for {len(spike_alerts)} meters.")
+        elif spike_alerts:
+            logger.info(f"Backfill {check_date}: {len(spike_alerts)} spike(s) logged (no WhatsApp).")
 
-        # Log each spike to the Spike Log sheet
+        # Log all spikes to the Spike Log sheet regardless of date
         if sheets_writer:
             for spike in spike_alerts:
                 sheets_writer.log_spike(spike)
-    else:
+
+    if not total_alerted and check_dates[-1] == alert_date:
         logger.info("No spike alerts triggered.")

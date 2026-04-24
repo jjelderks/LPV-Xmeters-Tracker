@@ -15,6 +15,8 @@ class SheetsWriter:
         creds = Credentials.from_service_account_file(credentials_file, scopes=SCOPES)
         self.client = gspread.authorize(creds)
         self.spreadsheet = self.client.open_by_key(sheet_id)
+        self._spike_log_ws = None
+        self._spike_log_existing = None  # set of (date, meter) already in sheet
 
     def _get_or_create_worksheet(self, title: str, rows: int = 2000, cols: int = 30) -> gspread.Worksheet:
         try:
@@ -187,35 +189,36 @@ class SheetsWriter:
         Append a spike event to the 'Spike Log' tab.
         Only adds new rows — never clears existing ones so notes are preserved.
         spike keys: date, meter, usage, normal_avg, threshold
+        Reads the sheet only once per SheetsWriter instance; subsequent calls use cache.
         """
         HEADERS = ["Date", "Meter", "Usage (m³)", "Clean Mean (m³)",
                    "Threshold (m³)", "Alerted", "Reason", "Resolved"]
 
-        ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
-        all_rows = ws.get_all_values()
+        # Load and cache on first call
+        if self._spike_log_ws is None:
+            self._spike_log_ws = self._get_or_create_worksheet("Spike Log", rows=1000, cols=10)
+            all_rows = self._spike_log_ws.get_all_values()
 
-        # If sheet is empty, write headers
-        if not all_rows:
-            ws.append_row(HEADERS, value_input_option="RAW")
-            all_rows = [HEADERS]
-        # If headers are outdated, add any missing columns without clearing data
-        elif all_rows[0] != HEADERS:
-            existing_headers = all_rows[0]
-            missing = [h for h in HEADERS if h not in existing_headers]
-            if missing:
-                # Append missing headers to the right of existing ones
-                new_header_row = existing_headers + missing
-                ws.update("A1", [new_header_row], value_input_option="RAW")
-                all_rows[0] = new_header_row
-                logger.info(f"Added missing Spike Log columns: {missing}")
+            if not all_rows:
+                self._spike_log_ws.append_row(HEADERS, value_input_option="RAW")
+            elif all_rows[0] != HEADERS:
+                existing_headers = all_rows[0]
+                missing = [h for h in HEADERS if h not in existing_headers]
+                if missing:
+                    new_header_row = existing_headers + missing
+                    self._spike_log_ws.update("A1", [new_header_row], value_input_option="RAW")
+                    logger.info(f"Added missing Spike Log columns: {missing}")
 
-        # Skip if this spike is already logged (same date + meter)
-        for row in all_rows[1:]:
-            if len(row) >= 2 and row[0] == spike["date"] and row[1] == spike["meter"]:
-                logger.info(f"Spike already logged for {spike['meter']} on {spike['date']}, skipping.")
-                return
+            self._spike_log_existing = {
+                (row[0], row[1]) for row in all_rows[1:] if len(row) >= 2
+            }
 
-        ws.append_row([
+        key = (spike["date"], spike["meter"])
+        if key in self._spike_log_existing:
+            logger.info(f"Spike already logged for {spike['meter']} on {spike['date']}, skipping.")
+            return
+
+        self._spike_log_ws.append_row([
             spike["date"],
             spike["meter"],
             round(spike["usage"], 4),
@@ -225,4 +228,5 @@ class SheetsWriter:
             "",
             "No",
         ], value_input_option="RAW")
+        self._spike_log_existing.add(key)
         logger.info(f"Spike logged: {spike['meter']} on {spike['date']}")
