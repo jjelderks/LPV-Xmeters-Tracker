@@ -225,7 +225,7 @@ class SheetsWriter:
             round(spike["normal_avg"], 4),
             round(spike["threshold"], 4),
             "Yes",
-            "",
+            spike.get("trigger", ""),
             "No",
         ], value_input_option="RAW")
         self._spike_log_existing.add(key)
