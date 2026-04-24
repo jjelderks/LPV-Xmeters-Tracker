@@ -174,13 +174,14 @@ for name in all_meters:
         other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
         avg = clean_avg(other_days)
         threshold = avg * 2.5
+        alert_max = max_daily * 1.5 if max_daily > 0 else 0.0
         over_avg = usage > threshold and usage > min_alert
-        over_max = max_daily > 0 and usage > max_daily
+        over_max = alert_max > 0 and usage > alert_max
         if over_avg or over_max:
             if over_avg and over_max:
-                reason = "Exceeded clean mean & daily limit"
+                reason = "Exceeded clean mean & 1.5x daily limit"
             elif over_max:
-                reason = "Exceeded daily limit"
+                reason = "Exceeded 1.5x daily limit"
             else:
                 reason = "Exceeded clean mean"
             alerts.append({
