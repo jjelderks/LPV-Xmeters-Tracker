@@ -177,10 +177,17 @@ for name in all_meters:
         over_avg = usage > threshold and usage > min_alert
         over_max = max_daily > 0 and usage > max_daily
         if over_avg or over_max:
+            if over_avg and over_max:
+                reason = "Exceeded clean mean & daily limit"
+            elif over_max:
+                reason = "Exceeded daily limit"
+            else:
+                reason = "Exceeded clean mean"
             alerts.append({
                 "Meter": name,
                 "Date": row["Date"].strftime("%Y-%m-%d"),
                 "Usage (m³)": round(usage, 4),
+                "Reason": reason,
                 "Clean Mean (m³)": round(avg, 4),
                 "Threshold (m³)": round(threshold, 4),
                 "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
