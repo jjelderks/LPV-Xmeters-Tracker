@@ -35,25 +35,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-def check_password():
-    if st.session_state.get("authenticated"):
-        return True
-    st.title("💧 LPV Water Meters")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        valid_user = st.secrets.get("USERNAME", os.environ.get("DASH_USERNAME", "LPV_medidores"))
-        valid_pass = st.secrets.get("PASSWORD", os.environ.get("DASH_PASSWORD", "agua"))
-        if username == valid_user and password == valid_pass:
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("Invalid username or password")
-    return False
-
-if not check_password():
-    st.stop()
-
 def _get_gspread_client():
     if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
         import json
@@ -67,6 +48,71 @@ def _get_gspread_client():
         sheet_id = os.environ["GOOGLE_SHEET_ID"]
     client = gspread.authorize(creds)
     return client.open_by_key(sheet_id)
+
+
+def _get_users() -> dict:
+    if "users" in st.secrets:
+        return {k: dict(v) for k, v in st.secrets["users"].items()}
+    # legacy fallback
+    return {
+        st.secrets.get("USERNAME", "lpv_medidores"): {
+            "password": st.secrets.get("PASSWORD", "agua"),
+            "role": "admin",
+            "name": "Admin",
+        }
+    }
+
+
+def _log_login(username: str, role: str):
+    try:
+        spreadsheet = _get_gspread_client()
+        try:
+            ws = spreadsheet.worksheet("Login Log")
+        except Exception:
+            ws = spreadsheet.add_worksheet("Login Log", rows=1000, cols=3)
+            ws.append_row(["Timestamp", "Username", "Role"])
+        ws.append_row([pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), username, role])
+    except Exception:
+        pass
+
+
+def check_password():
+    if st.session_state.get("authenticated"):
+        return True
+    st.title("💧 LPV Water Meters")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    if st.button("Login"):
+        users = _get_users()
+        user = users.get(username.lower())
+        if user and password == user["password"]:
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = username.lower()
+            st.session_state["role"] = user.get("role", "client")
+            st.session_state["display_name"] = user.get("name", username)
+            _log_login(username.lower(), user.get("role", "client"))
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+    return False
+
+
+def is_admin() -> bool:
+    return st.session_state.get("role") == "admin"
+
+
+if not check_password():
+    st.stop()
+
+# --- Sidebar: user info + logout ---
+with st.sidebar:
+    display = st.session_state.get("display_name", st.session_state.get("username", ""))
+    role = st.session_state.get("role", "client")
+    st.markdown(f"**{display}** ({role})")
+    if st.button("Logout"):
+        for key in ["authenticated", "username", "role", "display_name"]:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 @st.cache_data(ttl=3600)
 def load_data():
@@ -83,7 +129,7 @@ def load_data():
 
 @st.cache_data(ttl=3600)
 def load_variable_costs():
-    empty = pd.DataFrame(columns=["Date", "Cost"])
+    empty = pd.DataFrame(columns=["Date", "Category", "Vendor", "Item / Description", "Cost ($)"])
     try:
         if "GOOGLE_CREDENTIALS_JSON" in st.secrets:
             import json
@@ -103,7 +149,13 @@ def load_variable_costs():
                 try:
                     date = pd.to_datetime(row[0].strip(), dayfirst=True)
                     cost = float(row[4].replace(",", "").replace("$", ""))
-                    records.append({"Date": date, "Cost": cost})
+                    records.append({
+                        "Date": date,
+                        "Category": row[1].strip(),
+                        "Vendor": row[2].strip(),
+                        "Item / Description": row[3].strip(),
+                        "Cost ($)": cost,
+                    })
                 except (ValueError, Exception):
                     pass
         return pd.DataFrame(records) if records else empty, None
@@ -430,9 +482,10 @@ with tab_billing:
         q_costs_df = variable_costs_df[
             (variable_costs_df["Date"] >= q_start) &
             (variable_costs_df["Date"] <= q_end)
-        ]
-        q_costs_total = q_costs_df["Cost"].sum()
+        ].copy()
+        q_costs_total = q_costs_df["Cost ($)"].sum()
     else:
+        q_costs_df = pd.DataFrame(columns=["Date", "Category", "Vendor", "Item / Description", "Cost ($)"])
         q_costs_total = 0.0
 
     st.caption(
@@ -505,6 +558,19 @@ with tab_billing:
         use_container_width=True,
         hide_index=True,
     )
+    st.divider()
+    st.subheader(f"🧾 Variable Cost Breakdown — {selected_quarter}")
+    if not q_costs_df.empty:
+        display_costs = q_costs_df.copy()
+        display_costs["Date"] = display_costs["Date"].dt.strftime("%Y-%m-%d")
+        st.dataframe(
+            display_costs.style.format({"Cost ($)": "${:.2f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"Total: **${q_costs_total:,.2f}**")
+    else:
+        st.info("No variable cost entries found for this quarter.")
     st.markdown(
         "📋 [View full Variable Costs ledger](https://docs.google.com/spreadsheets/d/"
         "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc/edit)"
@@ -518,7 +584,7 @@ st.divider()
 _logo_path = os.path.join(os.path.dirname(__file__), "../quick-export.png")
 with open(_logo_path, "rb") as _f:
     _logo_b64 = base64.b64encode(_f.read()).decode()
-if st.button("🔄 Refresh data", use_container_width=True):
+if is_admin() and st.button("🔄 Refresh data", use_container_width=True):
     load_data.clear()
     load_spike_log.clear()
     load_variable_costs.clear()

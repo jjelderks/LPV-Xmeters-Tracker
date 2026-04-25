@@ -3,21 +3,17 @@
 generate_billing.py — Generate quarterly billing invoice tabs.
 
 Reads meter usage from the main water meters Google Sheet and writes
-calculated values into per-lot invoice tabs in the billing workbook.
-
-Billing quarter N uses variable costs from quarter N-1.
-Special case: Q1 2026 starts Jan 6 (meter install date), not Jan 1.
+calculated values into per-lot invoice tabs in a new billing workbook.
+Variable costs billed in quarter N come from quarter N-1.
 
 Usage:
-    python src/generate_billing.py --quarter 2 --year 2026
     python src/generate_billing.py --quarter 3 --year 2026
+    python src/generate_billing.py --quarter 3 --year 2026 --dry-run
 """
 import argparse
 import os
 import re
-import sys
 import time
-import json
 
 import pandas as pd
 import gspread
@@ -30,25 +26,45 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
-MAIN_SHEET_ID      = "1I14yVDrcpY6C2tABWDSxZ_MRjAyyFjjFKlrC2JBwh0g"
-BILLING_SHEET_ID   = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"
-STATEMENTS_SHEET_ID = "1CPztsWoAWVOPjDpJZMKTSMLdPo4ie8V0-pF6gUGxS7o"
-NON_BILLING_TABS   = {"Master Data", "Initial Reading", "Sheet1"}
+
+MAIN_SHEET_ID    = "1I14yVDrcpY6C2tABWDSxZ_MRjAyyFjjFKlrC2JBwh0g"   # LPV Water Meters
+COSTS_SHEET_ID   = "1YHGambbpzGhSPttzOLpm04XKL4BN0GZhLTdw6VHFHcc"   # Water System Costs 2026
+INVOICES_SHEET_ID = "10e8pIc32hJZzqMV7MlKDf8iKcMteqWpDu-wt_wyGrXA"  # LPV Q1-Q2 2026 Invoices (source)
+
 METER_INSTALL_DATE = pd.Timestamp("2026-01-06")
 
-# Month regex patterns per quarter (for replacing dates in invoice text)
-_QUARTER_MONTH_RX = {
-    1: r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?",
-    2: r"Apr(?:il)?|May|Jun(?:e)?",
-    3: r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?",
-    4: r"Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?",
+# Tab base name → tracker meter names (combined for multi-meter lots)
+LOT_METER_MAP = {
+    "Lot1":           ["LPV Lot 01"],
+    "Lot4":           ["LPV Lot 04"],
+    "Lot5":           ["LPV Lot 05"],
+    "Lot7":           ["LPV Lot 07"],
+    "Lot8":           ["LPV Lot 08"],
+    "Lot9":           ["LPV Lot 09"],
+    "Lot14":          ["LPV Lot 14"],
+    "Lot15":          ["LPV Lot 15"],
+    "Lot22":          ["LPV Lot 22"],
+    "Lot23":          ["LPV Lot 23"],
+    "Lot24":          ["LPV Lot 24"],
+    "Lot25":          ["LPV Lot 25"],
+    "Lot26":          ["LPV Lot 26"],
+    "LotS2":          ["S2 - Liron Casa"],
+    "LotS3":          ["S3 - Liron rental"],
+    "LotS9":          ["S9(a) - Oded duplex", "S9(b) - Oded duplex"],
+    "Casita":         ["LPV_Casita"],
+    "Lot11-13,16,17": [],   # no meters — 5 lots, fixed charges only
+    "Lot18-21":       [],   # no meters — 4 lots, fixed charges only
+    # LotS1 handled separately — has two distinct sub-meter invoice sections
 }
+
+# LotS1 sub-meters (each gets its own section in the tab)
+LOT_S1_METER_A = "S1(a) - Amit Magden"
+LOT_S1_METER_B = "S1(b) - Amit Magden"
 
 
 # ── Date helpers ──────────────────────────────────────────────────────────────
 
 def _quarter_dates(q, year):
-    """Return (start, end) Timestamps for a calendar quarter."""
     start_month = (q - 1) * 3 + 1
     q_start = pd.Timestamp(year, start_month, 1)
     q_end = (q_start + pd.offsets.QuarterEnd(0)).normalize()
@@ -56,29 +72,30 @@ def _quarter_dates(q, year):
 
 
 def _prev_quarter(q, year):
-    """Return (prev_q, prev_year)."""
-    if q == 1:
-        return 4, year - 1
-    return q - 1, year
+    return (4, year - 1) if q == 1 else (q - 1, year)
 
 
 def _prev_quarter_info(billing_q, billing_year):
-    """
-    Return info about the variable cost (previous) quarter:
-        prev_q, prev_year, prev_start, prev_end, prev_days
-    Q1 2026 is special: starts from METER_INSTALL_DATE, not Jan 1.
-    """
     prev_q, prev_year = _prev_quarter(billing_q, billing_year)
     raw_start, prev_end = _quarter_dates(prev_q, prev_year)
-
-    # First operational quarter: start from install date
-    if prev_q == 1 and prev_year == 2026:
-        prev_start = METER_INSTALL_DATE
-    else:
-        prev_start = raw_start
-
+    prev_start = METER_INSTALL_DATE if (prev_q == 1 and prev_year == 2026) else raw_start
     prev_days = (prev_end - prev_start).days + 1
     return prev_q, prev_year, prev_start, prev_end, prev_days
+
+
+def _fmt_date(ts):
+    """Format as '6-Jan-2026'"""
+    return ts.strftime("%-d-%b-%Y")
+
+
+def _fmt_billing_date(ts):
+    """Format as 'Apr 1, 2026'"""
+    return ts.strftime("%b %-d, %Y")
+
+
+def _fmt_billing_period(start, end):
+    """Format as 'April 1 - June 30, 2026'"""
+    return f"{start.strftime('%B %-d')} - {end.strftime('%B %-d, %Y')}"
 
 
 # ── gspread helpers ───────────────────────────────────────────────────────────
@@ -90,22 +107,13 @@ def _make_client():
     return gspread.authorize(creds)
 
 
-def _get_or_create_billing_workbook(client, prev_q, billing_q):
-    name = f"Q{prev_q}-Q{billing_q} water billing"
+def _get_or_create_workbook(client, name):
     try:
         return client.open(name)
     except gspread.exceptions.SpreadsheetNotFound:
-        sa_email = ""
-        try:
-            with open(os.environ["GOOGLE_CREDENTIALS_FILE"]) as f:
-                sa_email = json.load(f).get("client_email", "")
-        except Exception:
-            pass
-        raise RuntimeError(
-            f"Spreadsheet '{name}' not found. "
-            f"Create a blank Google Sheet named exactly '{name}' "
-            f"in your Google Drive and share it (Editor) with: {sa_email}"
-        )
+        wb = client.create(name)
+        print(f"  Created new workbook: {name}")
+        return wb
 
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
@@ -113,406 +121,388 @@ def _get_or_create_billing_workbook(client, prev_q, billing_q):
 def load_data():
     print("Loading meter data from Google Sheets…")
     client = _make_client()
-    spreadsheet = client.open_by_key(MAIN_SHEET_ID)
-
-    summary_ws = spreadsheet.worksheet("Summary")
-    summary_df = pd.DataFrame(summary_ws.get_all_records())
-
-    daily_ws = spreadsheet.worksheet("Daily Readings")
-    daily_df = pd.DataFrame(daily_ws.get_all_records())
+    ss = client.open_by_key(MAIN_SHEET_ID)
+    summary_df = pd.DataFrame(ss.worksheet("Summary").get_all_records())
+    daily_df = pd.DataFrame(ss.worksheet("Daily Readings").get_all_records())
     daily_df["Date"] = pd.to_datetime(daily_df["Date"], errors="coerce")
     daily_df = daily_df.dropna(subset=["Date"])
     daily_df["Daily Usage (m³)"] = pd.to_numeric(daily_df["Daily Usage (m³)"], errors="coerce")
     daily_df["Total Flow (m³)"] = pd.to_numeric(daily_df["Total Flow (m³)"], errors="coerce")
-
     return summary_df, daily_df
 
 
-def load_variable_costs():
+def load_variable_costs(prev_start, prev_end):
     print("Loading variable costs…")
     client = _make_client()
-    billing_sheet = client.open_by_key(BILLING_SHEET_ID)
-    ws = billing_sheet.worksheet("Variable Costs")
+    ws = client.open_by_key(COSTS_SHEET_ID).worksheet("Variable Costs")
     rows = ws.get_all_values()
-    records = []
+    total = 0.0
     for row in rows[1:]:
         if len(row) >= 5 and row[0].strip() and row[4].strip():
             try:
                 date = pd.to_datetime(row[0].strip(), dayfirst=True)
-                cost = float(row[4].replace(",", "").replace("$", ""))
-                records.append({"Date": date, "Cost": cost})
+                if prev_start <= date <= prev_end:
+                    total += float(row[4].replace(",", "").replace("$", ""))
             except Exception:
                 pass
-    return pd.DataFrame(records) if records else pd.DataFrame(columns=["Date", "Cost"])
+    return total
 
 
-# ── Usage calculation ─────────────────────────────────────────────────────────
+# ── Meter data helpers ────────────────────────────────────────────────────────
 
-def _get_prev_quarter_usage(daily_df, summary_df, prev_start, prev_end, is_install_quarter):
-    """
-    Return Series of usage (m³) per meter name for the previous (variable cost) quarter.
-    For the install quarter, uses Initial Reading as the starting point.
-    """
-    end_readings = (
-        daily_df[daily_df["Date"] == prev_end]
-        .set_index("Name")["Total Flow (m³)"]
+def _get_reading(daily_df, meter_name, date):
+    """Total flow reading for a meter on a specific date. Returns None if missing."""
+    rows = daily_df[(daily_df["Name"] == meter_name) & (daily_df["Date"] == date)]
+    if rows.empty:
+        return None
+    return float(rows.iloc[0]["Total Flow (m³)"])
+
+
+def _get_usage(daily_df, meter_names, start, end):
+    """Sum daily usage for meters within [start, end]."""
+    mask = (
+        daily_df["Name"].isin(meter_names) &
+        (daily_df["Date"] > start) &  # usage period starts day after begin reading
+        (daily_df["Date"] <= end)
     )
-    if is_install_quarter:
-        begin_readings = (
-            summary_df.set_index("Name")["Initial Reading (m³)"]
-            .apply(pd.to_numeric, errors="coerce")
+    return float(daily_df[mask]["Daily Usage (m³)"].sum())
+
+
+def _get_total_system_usage(daily_df, all_meter_names, start, end):
+    """Total usage across all metered lots in the period."""
+    mask = (
+        daily_df["Name"].isin(all_meter_names) &
+        (daily_df["Date"] > start) &
+        (daily_df["Date"] <= end)
+    )
+    return float(daily_df[mask]["Daily Usage (m³)"].sum())
+
+
+def _find_date_col(ws_values, row_idx):
+    """Detect whether dates in a row are in column D or E (returns 'D' or 'E')."""
+    if row_idx >= len(ws_values):
+        return "E"
+    row = ws_values[row_idx]
+    for col_idx, col_letter in [(3, "D"), (4, "E")]:
+        if col_idx < len(row) and re.search(r"\d{1,2}-[A-Za-z]{3}-\d{4}", str(row[col_idx])):
+            return col_letter
+    return "E"
+
+
+# ── Tab filling ───────────────────────────────────────────────────────────────
+
+def _build_standard_updates(ws_values, meters, prev_q, prev_start, prev_end,
+                             prev_days, prev_var_total, total_system_usage,
+                             daily_df, billing_q, billing_year):
+    """
+    Build cell updates for standard tabs (all lots except LotS1).
+    Returns list of (cell_a1, value) tuples.
+    """
+    billing_q_start, billing_q_end = _quarter_dates(billing_q, billing_year)
+    updates = []
+
+    # Header
+    updates += [
+        ("B1",  f"💧 LPV Water System - Q{billing_q} {billing_year} Statement"),
+        ("B6",  _fmt_billing_date(billing_q_start)),
+        ("B7",  _fmt_billing_period(billing_q_start, billing_q_end)),
+    ]
+
+    # Fixed charges section label and clear pump surcharge row 19
+    updates += [
+        ("A15", f"Fixed Charges (Q{billing_q})"),
+        ("B19", ""),
+        ("C19", ""),
+        ("D19", ""),
+        ("E19", ""),
+    ]
+
+    # Variable charges section
+    updates += [
+        ("A22", f"Variable Charges (Q{billing_q})"),
+        ("B24", f"Total Project Water Maintenance Costs (Q{prev_q})"),
+        ("F24", f"${prev_var_total:,.2f}"),
+    ]
+
+    # Date column detection (some tabs use D26/D27, others use E26/E27)
+    date_col = _find_date_col(ws_values, 25)  # row 26 = index 25
+    updates += [
+        (f"{date_col}26", _fmt_date(prev_start)),
+        (f"{date_col}27", _fmt_date(prev_end)),
+    ]
+
+    # Readings and usage
+    if meters:
+        # Begin reading = total flow at end of day before prev_start
+        begin_date = prev_start - pd.Timedelta(days=1)
+        begin_total = sum(
+            v for m in meters
+            if (v := _get_reading(daily_df, m, begin_date)) is not None
         )
+        end_total = sum(
+            v for m in meters
+            if (v := _get_reading(daily_df, m, prev_end)) is not None
+        )
+        usage = _get_usage(daily_df, meters, prev_start, prev_end)
     else:
-        prev_prev_end = prev_start - pd.Timedelta(days=1)
-        begin_readings = (
-            daily_df[daily_df["Date"] == prev_prev_end]
-            .set_index("Name")["Total Flow (m³)"]
-        )
-    return (end_readings - begin_readings).dropna().clip(lower=0)
+        begin_total = 0.0
+        end_total = 0.0
+        usage = 0.0
+
+    updates += [
+        ("F26", f"{begin_total:.4f}"),
+        ("F27", f"{end_total:.4f}"),
+        ("F28", f"{usage:.4f}"),
+        ("F29", f"{total_system_usage:.4f}"),
+    ]
+
+    # Usage info section
+    liters  = usage * 1000
+    gallons = usage * 264.172
+    avg_liters  = liters  / prev_days if prev_days > 0 else 0.0
+    avg_gallons = gallons / prev_days if prev_days > 0 else 0.0
+    updates += [
+        ("A38", f"Q{prev_q} Usage Information"),
+        ("F39", str(prev_days)),
+        ("F40", f"{liters:,.2f}"),
+        ("F41", f"{gallons:,.2f}"),
+        ("F42", f"{avg_liters:,.2f}"),
+        ("F43", f"{avg_gallons:,.2f}"),
+    ]
+
+    return updates
 
 
-# ── Main generation logic ─────────────────────────────────────────────────────
-
-def generate_billing_tabs(daily_df, summary_df, variable_costs_df, billing_q, billing_year):
+def _build_lots1_updates(prev_q, prev_start, prev_end, prev_days,
+                         prev_var_total, total_system_usage,
+                         daily_df, billing_q, billing_year):
     """
-    Generate billing invoice tabs for billing_q / billing_year.
-    Variable costs billed are from the previous quarter.
+    Build cell updates for the LotS1 tab (two separate sub-meter sections).
     """
+    billing_q_start, billing_q_end = _quarter_dates(billing_q, billing_year)
+    updates = []
+
+    # Header
+    updates += [
+        ("B1", f"💧 LPV Water System - Q{billing_q} {billing_year} Statement"),
+        ("B6", _fmt_billing_date(billing_q_start)),
+        ("B7", _fmt_billing_period(billing_q_start, billing_q_end)),
+    ]
+
+    # Fixed charges (rows 13-18 for LotS1) — clear pump surcharge row 17
+    updates += [
+        ("A13", f"Fixed Charges (Q{billing_q})"),
+        ("B17", ""),
+        ("C17", ""),
+        ("D17", ""),
+        ("E17", ""),
+    ]
+
+    # Variable charges
+    updates += [
+        ("A20", f"Variable Charges (Q{billing_q})"),
+        ("B22", f"Total Project Water Maintenance Costs (Q{prev_q})"),
+        ("F22", f"${prev_var_total:,.2f}"),
+    ]
+
+    begin_date = prev_start - pd.Timedelta(days=1)
+
+    # S1(a) section
+    begin_a = _get_reading(daily_df, LOT_S1_METER_A, begin_date) or 0.0
+    end_a   = _get_reading(daily_df, LOT_S1_METER_A, prev_end)   or 0.0
+    usage_a = _get_usage(daily_df, [LOT_S1_METER_A], prev_start, prev_end)
+
+    updates += [
+        ("D24", _fmt_date(prev_start)),
+        ("F24", f"{begin_a:.4f}"),
+        ("D25", _fmt_date(prev_end)),
+        ("F25", f"{end_a:.4f}"),
+        ("F26", f"{usage_a:.4f}"),
+        ("F27", f"{total_system_usage:.4f}"),
+    ]
+
+    # S1(b) section
+    begin_b = _get_reading(daily_df, LOT_S1_METER_B, begin_date) or 0.0
+    end_b   = _get_reading(daily_df, LOT_S1_METER_B, prev_end)   or 0.0
+    usage_b = _get_usage(daily_df, [LOT_S1_METER_B], prev_start, prev_end)
+
+    updates += [
+        ("D32", _fmt_date(prev_start)),
+        ("F32", f"{begin_b:.4f}"),
+        ("D33", _fmt_date(prev_end)),
+        ("F33", f"{end_b:.4f}"),
+        ("F34", f"{usage_b:.4f}"),
+        ("F35", f"{total_system_usage:.4f}"),
+    ]
+
+    # Combined usage info
+    total_usage = usage_a + usage_b
+    liters      = total_usage * 1000
+    gallons     = total_usage * 264.172
+    updates += [
+        ("A41", f"Q{prev_q} Usage Information"),
+        ("F42", str(prev_days)),
+        ("F43", f"{total_usage:.4f}"),
+        ("F44", f"{liters:,.2f}"),
+        ("F45", f"{gallons:,.2f}"),
+        ("F46", f"{total_usage / prev_days:.4f}" if prev_days > 0 else "0"),
+        ("F47", f"{liters / prev_days:,.2f}"     if prev_days > 0 else "0"),
+        ("F48", f"{gallons / prev_days:,.2f}"    if prev_days > 0 else "0"),
+    ]
+
+    return updates
+
+
+# ── Tab creation and reordering ───────────────────────────────────────────────
+
+def _q_suffix(q, year):
+    return f"Q{q}{str(year)[-2:]}"
+
+
+def _tab_base(title, q):
+    """'Lot1-Q326' → 'Lot1'"""
+    return re.sub(rf"-{_q_suffix(q, 2026)}$", "", title, flags=re.IGNORECASE)
+
+
+def _copy_or_get_tab(src_wb, dst_wb, src_title, dst_title):
+    """Copy a tab from src_wb to dst_wb with new title. Skip if already exists."""
+    try:
+        return dst_wb.worksheet(dst_title)
+    except gspread.exceptions.WorksheetNotFound:
+        pass
+    src_ws = src_wb.worksheet(src_title)
+    new_ws = src_ws.copy_to(dst_wb.id)
+    new_ws.update_title(dst_title)
+    time.sleep(1)
+    return new_ws
+
+
+def _reorder_tabs(wb):
+    def _order(ws):
+        t = ws.title.lower()
+        m_s   = re.match(r"lots(\d+)", t)
+        m_lot = re.match(r"lot(\d+)", t)
+        if m_s:   return (1, int(m_s.group(1)), 0)
+        if m_lot: return (0, int(m_lot.group(1)), 0)
+        if "casita" in t: return (2, 0, 0)
+        return (3, 0, 0)
+    try:
+        wb.reorder_worksheets(sorted(wb.worksheets(), key=_order))
+    except Exception as e:
+        print(f"  ⚠️  Tab reorder failed: {e}")
+
+
+# ── Main generation ───────────────────────────────────────────────────────────
+
+def generate(billing_q, billing_year, dry_run=False):
     prev_q, prev_year, prev_start, prev_end, prev_days = _prev_quarter_info(billing_q, billing_year)
     billing_q_start, billing_q_end = _quarter_dates(billing_q, billing_year)
-    is_install_quarter = (prev_q == 1 and prev_year == 2026)
 
-    # Date strings for text replacement
-    prev_long_range    = f"{prev_start.strftime('%B %-d')} - {prev_end.strftime('%B %-d, %Y')}"
-    prev_short_range   = f"{prev_start.strftime('%b. %-d')} - {prev_end.strftime('%b. %-d, %Y')}"
-    billing_long_range = f"{billing_q_start.strftime('%B %-d')} - {billing_q_end.strftime('%B %-d, %Y')}"
-    billing_short_range = f"{billing_q_start.strftime('%b. %-d')} - {billing_q_end.strftime('%b. %-d, %Y')}"
-    billing_start_str  = billing_q_start.strftime('%B %-d, %Y')
-    prev_start_cell    = prev_start.strftime("%-d-%b-%Y")   # e.g., "6-Jan-2026"
-    prev_end_cell      = prev_end.strftime("%-d-%b-%Y")      # e.g., "31-Mar-2026"
-    prev_month_rx      = _QUARTER_MONTH_RX[prev_q]
+    print(f"\nBilling period : Q{billing_q} {billing_year}  "
+          f"({billing_q_start.date()} – {billing_q_end.date()})")
+    print(f"Variable costs : Q{prev_q} {prev_year}  "
+          f"({prev_start.date()} – {prev_end.date()}, {prev_days} days)")
+    print(f"Dry run        : {dry_run}\n")
 
-    # Usage and cost totals for the previous quarter
-    prev_usage = _get_prev_quarter_usage(
-        daily_df, summary_df, prev_start, prev_end, is_install_quarter
-    )
-    total_prev_usage = prev_usage.sum()
+    summary_df, daily_df = load_data()
+    prev_var_total = load_variable_costs(prev_start, prev_end)
+    print(f"Q{prev_q} variable costs total: ${prev_var_total:,.2f}\n")
 
-    prev_var_total = (
-        variable_costs_df[
-            (variable_costs_df["Date"] >= prev_start) &
-            (variable_costs_df["Date"] <= prev_end)
-        ]["Cost"].sum()
-        if not variable_costs_df.empty else 0.0
-    )
+    all_metered = [m for meters in LOT_METER_MAP.values() for m in meters]
+    all_metered += [LOT_S1_METER_A, LOT_S1_METER_B]
+    total_system_usage = _get_total_system_usage(daily_df, all_metered, prev_start, prev_end)
+    print(f"Q{prev_q} total system usage  : {total_system_usage:.4f} m³\n")
 
-    # Readings at boundary dates
-    prev_end_readings = (
-        daily_df[daily_df["Date"] == prev_end]
-        .set_index("Name")["Total Flow (m³)"]
-    )
-    billing_begin_readings = (
-        daily_df[daily_df["Date"] == billing_q_start]
-        .set_index("Name")["Total Flow (m³)"]
-    )
+    client  = _make_client()
+    src_wb  = client.open_by_key(INVOICES_SHEET_ID)
+    src_q   = prev_q  # Q2 tabs are the source for Q3
+    src_sfx = _q_suffix(src_q, prev_year)
+    dst_sfx = _q_suffix(billing_q, billing_year)
+    dst_name = f"LPV Q{prev_q}-Q{billing_q} {billing_year} Invoices"
 
-    # Short meter number → tracker name lookup
-    meter_to_name = {
-        str(row["Meter Number"]).lstrip("0"): row["Name"]
-        for _, row in summary_df.iterrows()
-        if str(row.get("Meter Number", "")).strip()
-    }
+    if not dry_run:
+        dst_wb = _get_or_create_workbook(client, dst_name)
+        # Delete auto-created blank sheet if present
+        sheets = dst_wb.worksheets()
+        if len(sheets) == 1 and sheets[0].title in ("Sheet1", ""):
+            pass  # will be replaced when we copy tabs
 
-    client      = _make_client()
-    statements  = client.open_by_key(STATEMENTS_SHEET_ID)
-    billing_wb  = _get_or_create_billing_workbook(client, prev_q, billing_q)
-    results     = []
+    results = []
+    src_tabs = {ws.title: ws for ws in src_wb.worksheets()}
 
-    # Pre-load all source (prev quarter) tabs from the statements workbook
-    prev_tabs = {}
-    for ws in statements.worksheets():
-        if ws.title in NON_BILLING_TABS:
-            continue
-        if not re.search(rf'q{prev_q}', ws.title, re.IGNORECASE):
-            continue
-        vals = ws.get_all_values()
-        time.sleep(1)
-        prev_tabs[ws.title.lower().replace(" ", "")] = (ws, vals)
+    for src_title, src_ws in src_tabs.items():
+        base = _tab_base(src_title, src_q)
+        dst_title = f"{base}-{dst_sfx}"
 
-    print(f"Found {len(prev_tabs)} Q{prev_q} source tabs.")
+        # --- Get meter list ---
+        if base == "LotS1":
+            is_lots1 = True
+            meters = [LOT_S1_METER_A, LOT_S1_METER_B]
+        else:
+            is_lots1 = False
+            meters = LOT_METER_MAP.get(base)
+            if meters is None:
+                results.append(f"⚠️  {src_title} — base '{base}' not in LOT_METER_MAP, skipped")
+                continue
 
-    # Process each billing quarter tab in the billing workbook
-    for billing_ws in billing_wb.worksheets():
-        title = billing_ws.title
+        # --- Copy tab ---
+        if not dry_run:
+            dst_ws = _copy_or_get_tab(src_wb, dst_wb, src_title, dst_title)
+            ws_values = dst_ws.get_all_values()
+            time.sleep(1)
+        else:
+            ws_values = src_ws.get_all_values()
 
-        # Strip "Copy of " prefix from manually copied tabs
-        if title.lower().startswith("copy of "):
-            title = title[len("copy of "):]
-            billing_ws.update_title(title)
-            time.sleep(0.5)
-
-        # Find the matching source (prev quarter) tab
-        prev_title_guess = re.sub(rf'(?i)q{billing_q}', f'Q{prev_q}', title, count=1)
-        prev_key = prev_title_guess.lower().replace(" ", "")
-
-        prev_entry = prev_tabs.get(prev_key)
-        if prev_entry is None:
-            for k, (v_ws, v_vals) in prev_tabs.items():
-                derived = re.sub(rf'(?i)q{prev_q}', f'q{billing_q}', v_ws.title, count=1).lower().replace(" ", "")
-                if derived == title.lower().replace(" ", ""):
-                    prev_entry = (v_ws, v_vals)
-                    break
-
-        if prev_entry is None:
-            results.append(f"⚠️  {title} — no matching Q{prev_q} source tab found, skipped")
-            continue
-
-        _, source_values = prev_entry
-        if not source_values:
-            continue
-
-        # Identify tracker meters in this tab by serial number
-        tab_meter_names = set()
-        for row in source_values:
-            for cell in row:
-                short = str(cell).strip().lstrip("0")
-                if short in meter_to_name:
-                    tab_meter_names.add(meter_to_name[short])
-
-        # Fallback: match by initial reading value
-        if not tab_meter_names:
-            _init_map = {
-                round(pd.to_numeric(r["Initial Reading (m³)"], errors="coerce"), 4): r["Name"]
-                for _, r in summary_df.iterrows()
-                if str(r.get("Initial Reading (m³)", "")).strip()
-            }
-            for _row in source_values:
-                _row_str = " ".join(str(c) for c in _row).lower()
-                if "beginning qtr reading" in _row_str:
-                    for _cell in _row:
-                        try:
-                            _val = round(float(str(_cell).strip()), 4)
-                            if _val in _init_map:
-                                tab_meter_names.add(_init_map[_val])
-                        except (ValueError, TypeError):
-                            pass
-
-        # Per-tab usage statistics
-        tab_usage    = sum(float(prev_usage.get(n, 0)) for n in tab_meter_names)
-        tab_pct      = round(tab_usage / total_prev_usage * 100 if total_prev_usage > 0 else 0.0, 2)
-        tab_var_cost = round(tab_usage / total_prev_usage * prev_var_total if total_prev_usage > 0 else 0.0, 2)
-        tab_liters   = round(tab_usage * 1000, 1)
-        tab_gallons  = round(tab_usage * 264.172, 1)
-        tab_avg_m3   = round(tab_usage / prev_days, 3)
-        tab_avg_liters  = round(tab_liters / prev_days, 1)
-        tab_avg_gallons = round(tab_gallons / prev_days, 1)
-
-        initial_series = (
-            summary_df.set_index("Name")["Initial Reading (m³)"]
-            .apply(pd.to_numeric, errors="coerce")
-        )
-        tab_initial = sum(
-            float(initial_series[n]) for n in tab_meter_names
-            if n in initial_series.index and not pd.isna(initial_series[n])
-        )
-
-        try:
-            billing_vals = billing_ws.get_all_values()
-            updates = []
-            a1 = gspread.utils.rowcol_to_a1
-
-            def _val_cell(cs):
-                s = cs.strip()
-                if s in ("", "NA", "N/A", "0.00%", "$0.00", "0", "$ -", "$-"):
-                    return True
-                return not re.search(r'[a-zA-Z]', s)
-
-            def _rightmost_val(row, row_i):
-                for j in range(len(row) - 1, -1, -1):
-                    if _val_cell(row[j]):
-                        return a1(row_i + 1, j + 1)
-                return None
-
-            # Fix #REF! cells from broken cross-workbook formulas
-            for i, row in enumerate(billing_vals):
-                for j, cell in enumerate(row):
-                    if str(cell).strip() == "#REF!":
-                        src_val = source_values[i][j] if i < len(source_values) and j < len(source_values[i]) else ""
-                        updates.append({"range": a1(i + 1, j + 1), "values": [[src_val]]})
-                        billing_vals[i][j] = src_val
-
-            # Fixed cell addresses
-            updates.extend([
-                {"range": "F16", "values": [["Costs"]]},
-                {"range": "F20", "values": [["=SUM(F17:F19)"]]},
-                {"range": "F24", "values": [[f"${prev_var_total:,.2f}"]]},
-                {"range": "D26", "values": [[prev_start_cell]]},
-                {"range": "F31", "values": [["=F30*F24"]]},
-            ])
-
-            # Update label in row 24
-            if len(billing_vals) > 23:
-                for j, cell in enumerate(billing_vals[23]):
-                    if re.search(r'(?i)water\s+maintenance', str(cell)):
-                        updates.append({
-                            "range": a1(24, j + 1),
-                            "values": [[f"Total Project Water Maintenance Costs (Q{prev_q})"]],
-                        })
-                        break
-
-            # Row scanning
-            for i, row in enumerate(billing_vals):
-                rl = " ".join(row).lower().replace('\xa0', ' ').replace('\u00b3', '3')
-
-                # Text replacements
-                for j, cell in enumerate(row):
-                    s = str(cell)
-                    orig = s
-                    s = re.sub(rf'\bQ{prev_q}\b', f'Q{billing_q}', s)
-                    s = s.replace(prev_long_range,  billing_long_range)
-                    s = s.replace(prev_short_range, billing_short_range)
-                    s = re.sub(rf'(?:{prev_month_rx})\s+\d{{1,2}},?\s+{prev_year}', billing_start_str, s)
-                    s = re.sub(r'(?i)since\s+meter\s+installation\s+date',
-                               f"{prev_long_range}", s)
-                    s = re.sub(r'(?i)see\s+hoa\s+invoice', 'Upon receipt, see invoice', s)
-                    s = re.sub(r'(?i)payment\s+due\s+date\s*:.*',
-                               'Payment due date: Upon receipt, see invoice', s)
-                    s = re.sub(r'(?i)note\s*:\s*usage.based charges begin.*', '', s)
-                    if re.search(r'(?i)^fixed\s+charges\s*$', s.strip()):
-                        s = f'Fixed Charges (Q{billing_q})'
-                    if re.search(r'(?i)^variable\s+charges\s*$', s.strip()):
-                        s = f'Variable Charges (Q{prev_q})'
-                    if s != orig:
-                        updates.append({"range": a1(i + 1, j + 1), "values": [[s]]})
-
-                # Beginning QTR Reading
-                if "beginning qtr reading" in rl or "beginning quarter reading" in rl:
-                    if tab_initial > 0:
-                        cell_a1 = _rightmost_val(row, i)
-                        if cell_a1:
-                            updates.append({"range": cell_a1, "values": [[f"{tab_initial:.4f}"]]})
-                    updates.append({"range": a1(i + 1, 4), "values": [[prev_start_cell]]})
-                    continue
-
-                # End QTR Reading
-                if "end qtr reading" in rl or "end quarter reading" in rl:
-                    end_total = sum(
-                        float(prev_end_readings[n]) for n in tab_meter_names
-                        if n in prev_end_readings.index
-                    )
-                    end_val = f"{end_total:.4f}" if end_total > 0 else None
-                    if end_val:
-                        cell_a1 = _rightmost_val(row, i)
-                        if cell_a1:
-                            updates.append({"range": cell_a1, "values": [[end_val]]})
-                    updates.append({"range": a1(i + 1, 4), "values": [[prev_end_cell]]})
-                    continue
-
-                # Total Due / Total Charges
-                if "total due" in rl or "total charges" in rl:
-                    updates.append({"range": a1(i + 1, 6), "values": [["=F31+F20"]]})
-                    continue
-
-                # Subtotal rows (skip — F31 handles it)
-                if "subtotal" in rl and "total charges" not in rl and "total water" not in rl:
-                    continue
-
-                # Other value fills
-                ROW_VALUES = [
-                    ("usage total" in rl and ("m3" in rl or "m³" in rl),                                    f"{tab_usage:.4f}"),
-                    ("project total" in rl,                                                                  f"{total_prev_usage:.4f}"),
-                    ("% of usage" in rl,                                                                     f"{tab_pct:.2f}%"),
-                    ("total water system maintenance" in rl,                                                 f"${prev_var_total:,.2f}"),
-                    ("number of days" in rl,                                                                 str(prev_days)),
-                    (("total liters" in rl or ("liters" in rl and "total" in rl)) and "average" not in rl,  f"{tab_liters:,.1f}"),
-                    (("total gallons" in rl or ("gallons" in rl and "total" in rl)) and "average" not in rl, f"{tab_gallons:,.1f}"),
-                    ("average daily" in rl and "m³" in rl,                                                  f"{tab_avg_m3:.3f}"),
-                    ("average daily" in rl and "liter" in rl,                                               f"{tab_avg_liters:,.1f}"),
-                    ("average daily" in rl and "gallon" in rl,                                              f"{tab_avg_gallons:,.1f}"),
-                ]
-                for matches, new_val in ROW_VALUES:
-                    if matches:
-                        cell_a1 = _rightmost_val(row, i)
-                        if cell_a1:
-                            updates.append({"range": cell_a1, "values": [[new_val]]})
-                        break
-
-            if updates:
-                billing_ws.batch_update(updates, value_input_option="USER_ENTERED")
-
-            results.append(
-                f"✅  {title} — {len(updates)} cells updated, "
-                f"usage: {tab_usage:.3f} m³ ({tab_pct:.2f}%)"
+        # --- Build updates ---
+        if is_lots1:
+            updates = _build_lots1_updates(
+                prev_q, prev_start, prev_end, prev_days,
+                prev_var_total, total_system_usage,
+                daily_df, billing_q, billing_year,
+            )
+        else:
+            updates = _build_standard_updates(
+                ws_values, meters, prev_q, prev_start, prev_end,
+                prev_days, prev_var_total, total_system_usage,
+                daily_df, billing_q, billing_year,
             )
 
-        except Exception as e:
-            results.append(f"❌  {title}: {e}")
+        # --- Apply or preview ---
+        if dry_run:
+            print(f"\n{'─'*60}")
+            print(f"  {dst_title}  ({len(meters)} meter(s))")
+            for cell, val in updates:
+                print(f"    {cell:>5}  ←  {repr(val)}")
+        else:
+            batch = [{"range": cell, "values": [[val]]} for cell, val in updates]
+            dst_ws.batch_update(batch, value_input_option="USER_ENTERED")
+            usage = sum(_get_usage(daily_df, meters, prev_start, prev_end)
+                        for _ in [1]) if meters else 0.0
+            pct = usage / total_system_usage * 100 if total_system_usage > 0 else 0.0
+            results.append(f"✅  {dst_title} — {len(updates)} cells, usage {usage:.3f} m³ ({pct:.2f}%)")
+            time.sleep(3)
 
-        time.sleep(4)  # stay under Sheets API quota
+    if not dry_run:
+        _reorder_tabs(dst_wb)
+        print(f"\nWorkbook: {dst_name}\n")
+        for r in results:
+            print(r)
 
-    # Reorder tabs: Lot1, Lot3…Lot26, then LotS1…LotS9, then Casita, then other
-    def _tab_order(ws):
-        t = ws.title.lower()
-        m_s   = re.match(r'lots(\d+)', t)
-        m_lot = re.match(r'lot(\d+)', t)
-        if m_s:
-            return (1, int(m_s.group(1)), 0)
-        if m_lot:
-            return (0, int(m_lot.group(1)), 0)
-        if 'casita' in t:
-            return (2, 0, 0)
-        return (3, 0, 0)
-
-    try:
-        ordered = sorted(billing_wb.worksheets(), key=_tab_order)
-        billing_wb.reorder_worksheets(ordered)
-    except Exception as e:
-        results.append(f"⚠️  Tab reorder failed: {e}")
-
-    return results, prev_var_total
+    print("\nDone.")
 
 
-# ── CLI entry point ───────────────────────────────────────────────────────────
+# ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
         description="Generate quarterly billing invoice tabs for LPV water meters."
     )
-    parser.add_argument(
-        "--quarter", "-q",
-        type=int,
-        required=True,
-        choices=[1, 2, 3, 4],
-        help="Billing quarter number (1–4)",
-    )
-    parser.add_argument(
-        "--year", "-y",
-        type=int,
-        default=pd.Timestamp.now().year,
-        help="Billing year (default: current year)",
-    )
+    parser.add_argument("--quarter", "-q", type=int, required=True, choices=[1, 2, 3, 4])
+    parser.add_argument("--year",    "-y", type=int, default=pd.Timestamp.now().year)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Preview all cell updates without writing anything")
     args = parser.parse_args()
-
-    prev_q, prev_year, prev_start, prev_end, prev_days = _prev_quarter_info(args.quarter, args.year)
-    billing_q_start, billing_q_end = _quarter_dates(args.quarter, args.year)
-
-    print(f"\nGenerating Q{args.quarter} {args.year} billing tabs")
-    print(f"  Billing period : {billing_q_start.date()} – {billing_q_end.date()}")
-    print(f"  Variable costs : Q{prev_q} {prev_year} ({prev_start.date()} – {prev_end.date()}, {prev_days} days)")
-    print(f"  Workbook       : Q{prev_q}-Q{args.quarter} water billing\n")
-
-    summary_df, daily_df = load_data()
-    variable_costs_df    = load_variable_costs()
-
-    print("\nGenerating billing tabs…\n")
-    results, var_total = generate_billing_tabs(
-        daily_df, summary_df, variable_costs_df, args.quarter, args.year
-    )
-
-    print(f"\nQ{prev_q} variable costs total: ${var_total:,.2f}\n")
-    for r in results:
-        print(r)
-    print("\nDone.")
+    generate(args.quarter, args.year, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

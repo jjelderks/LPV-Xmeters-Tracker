@@ -65,6 +65,10 @@ def check_alerts(readings: list[dict], check_dates: list[str] = None, sheets_wri
     if check_dates is None:
         check_dates = [all_dates[-1]]
 
+    if not check_dates:
+        logger.info("No new dates to check for alerts.")
+        return
+
     alert_date = check_dates[-1]  # only this date sends WhatsApp
 
     by_meter = defaultdict(list)
