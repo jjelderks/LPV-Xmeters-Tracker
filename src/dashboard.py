@@ -5,6 +5,7 @@ Run: streamlit run src/dashboard.py
 import os
 import sys
 import base64
+import statistics
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -119,6 +120,7 @@ def load_data():
     spreadsheet = _get_gspread_client()
     summary_ws = spreadsheet.worksheet("Summary")
     summary_df = pd.DataFrame(summary_ws.get_all_records())
+    summary_df = summary_df[summary_df["Name"].astype(str).str.strip().str.len() > 0].reset_index(drop=True)
     daily_ws = spreadsheet.worksheet("Daily Readings")
     daily_df = pd.DataFrame(daily_ws.get_all_records())
     daily_df["Date"] = pd.to_datetime(daily_df["Date"], errors="coerce")
@@ -194,7 +196,6 @@ if usage_col is None:
     st.stop()
 
 def clean_avg(values):
-    import statistics
     non_zero = [v for v in values if v > 0]
     if not non_zero:
         return 0
@@ -208,43 +209,57 @@ all_meters = sorted(daily_df["Name"].unique())
 def _thresh_map(df, col):
     if col not in df.columns:
         return {}
-    return {
-        row["Name"]: float(row[col]) if str(row[col]).strip() not in ("", "nan") else 0.0
-        for _, row in df.iterrows()
-    }
+    result = {}
+    for _, row in df.iterrows():
+        name = str(row["Name"]).strip()
+        if not name:
+            continue
+        try:
+            val = str(row[col]).strip()
+            result[name] = float(val) if val not in ("", "nan") else 0.0
+        except (ValueError, TypeError):
+            pass
+    return result
 
 min_thresholds = _thresh_map(summary_df, "Min Alert (m³)")
 max_thresholds = _thresh_map(summary_df, "Max Daily (m³)")
+high_thresholds = _thresh_map(summary_df, "🟡 High Warning (m³)")
+critical_thresholds = _thresh_map(summary_df, "🔴 Critical (m³)")
 
+# Spike alerts — statistical: usage > 2.5× clean mean for that meter
 alerts = []
 for name in all_meters:
     meter_data = daily_df[daily_df["Name"] == name].copy()
     min_alert = min_thresholds.get(name, 0.0)
-    max_daily = max_thresholds.get(name, 0.0)
     for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
         usage = row["Daily Usage (m³)"]
         other_days = meter_data[meter_data["Date"] != row["Date"]]["Daily Usage (m³)"].tolist()
         avg = clean_avg(other_days)
         threshold = avg * 2.5
-        alert_max = max_daily * 1.5 if max_daily > 0 else 0.0
-        over_avg = usage > threshold and usage > min_alert
-        over_max = alert_max > 0 and usage > alert_max
-        if over_avg or over_max:
-            if over_avg and over_max:
-                reason = "Exceeded clean mean & 1.5x daily limit"
-            elif over_max:
-                reason = "Exceeded 1.5x daily limit"
-            else:
-                reason = "Exceeded clean mean"
+        if usage > threshold and usage > min_alert:
             alerts.append({
-                "Meter": name,
                 "Date": row["Date"].strftime("%Y-%m-%d"),
+                "Meter": name,
                 "Usage (m³)": round(usage, 4),
-                "Reason": reason,
-                "Clean Mean (m³)": round(avg, 4),
-                "Threshold (m³)": round(threshold, 4),
-                "Min Alert (m³)": round(min_alert, 4) if min_alert else "",
-                "Daily Limit rec. (m³)": round(max_daily, 4) if max_daily else "",
+                "Normal Avg (m³)": round(avg, 4),
+                "Trigger": "2.5× avg exceeded",
+            })
+
+# Leak alerts — hard limit: usage > Critical threshold (burst pipe / stuck valve)
+leak_alerts = []
+for name in all_meters:
+    meter_data = daily_df[daily_df["Name"] == name].copy()
+    critical = critical_thresholds.get(name, 0.0)
+    if critical <= 0:
+        continue
+    for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
+        usage = row["Daily Usage (m³)"]
+        if usage > critical:
+            leak_alerts.append({
+                "Date": row["Date"].strftime("%Y-%m-%d"),
+                "Meter": name,
+                "Usage (m³)": round(usage, 4),
+                "Critical Limit (m³)": f"{critical:.1f}",
             })
 
 # --- Tabs ---
@@ -256,7 +271,7 @@ tab_usage, tab_billing = st.tabs(["📊 Usage", "💰 Billing"])
 with tab_usage:
 
     # --- Spike Alert ---
-    st.subheader("⚠️ Spike Alert / High Use")
+    st.subheader("⚠️ Spike Alert")
     if alerts:
         alerts_df = pd.DataFrame(alerts)
         most_recent_date = alerts_df["Date"].max()
@@ -265,9 +280,27 @@ with tab_usage:
         meter_list = ", ".join(sorted(recent_alerts["Meter"].unique()))
         st.error(f"⚠️ **Spike alert — period {most_recent_prev} ~16:30 → {most_recent_date} ~16:30:** {meter_list}")
         last_2_dates = sorted(alerts_df["Date"].unique())[-2:]
-        st.dataframe(alerts_df[alerts_df["Date"].isin(last_2_dates)], use_container_width=True, hide_index=True)
+        disp_alerts = alerts_df[alerts_df["Date"].isin(last_2_dates)].copy()
+        disp_alerts["Usage (m³)"] = disp_alerts["Usage (m³)"].apply(lambda x: f"{x:.2f}")
+        disp_alerts["Normal Avg (m³)"] = disp_alerts["Normal Avg (m³)"].apply(lambda x: f"{x:.2f}")
+        st.dataframe(disp_alerts, use_container_width=True, hide_index=True)
     else:
         st.success("No unusual usage detected.")
+
+    # --- Leak / Hard Limit Alert ---
+    st.subheader("🚨 Leak / Critical Limit")
+    if leak_alerts:
+        leak_df = pd.DataFrame(leak_alerts)
+        most_recent_leak = leak_df["Date"].max()
+        recent_leaks = leak_df[leak_df["Date"] == most_recent_leak]
+        leak_meter_list = ", ".join(sorted(recent_leaks["Meter"].unique()))
+        st.error(f"🚨 **Usage exceeded Critical threshold — {most_recent_leak}:** {leak_meter_list}")
+        last_2_leak_dates = sorted(leak_df["Date"].unique())[-2:]
+        disp_leaks = leak_df[leak_df["Date"].isin(last_2_leak_dates)].copy()
+        disp_leaks["Usage (m³)"] = disp_leaks["Usage (m³)"].apply(lambda x: f"{x:.2f}")
+        st.dataframe(disp_leaks, use_container_width=True, hide_index=True)
+    else:
+        st.success("No meters above Critical threshold.")
 
     st.divider()
 
@@ -283,24 +316,30 @@ with tab_usage:
 
     # --- Daily Snapshot ---
     latest_date = daily_df["Date"].max()
-    prev_date = latest_date - pd.Timedelta(days=1)
-    st.subheader(f"📊 Daily Snapshot — {latest_date.strftime('%Y-%m-%d')}")
-    st.caption(f"Period: {prev_date.strftime('%Y-%m-%d')} ~16:30 → {latest_date.strftime('%Y-%m-%d')} ~16:30")
+    available_dates = sorted(daily_df["Date"].unique(), reverse=True)
+    available_dates_str = [d.strftime("%Y-%m-%d") for d in available_dates]
+    st.subheader("📊 Daily Snapshot")
+    selected_date_str = st.selectbox(
+        "Date", available_dates_str, index=0, key="snapshot_date"
+    )
+    selected_date = pd.Timestamp(selected_date_str)
+    prev_date = selected_date - pd.Timedelta(days=1)
+    st.caption(f"Period: {prev_date.strftime('%Y-%m-%d')} ~16:30 → {selected_date_str} ~16:30")
     selected_snapshot = st.multiselect("Select meters", all_meters, default=all_meters, key="snapshot")
     if selected_snapshot:
         snapshot_df = daily_df[
-            (daily_df["Date"] == latest_date) &
+            (daily_df["Date"] == selected_date) &
             (daily_df["Name"].isin(selected_snapshot))
         ].copy().sort_values("Daily Usage (m³)", ascending=False)
-        alert_meters_today = {a["Meter"] for a in alerts if a["Date"] == latest_date.strftime("%Y-%m-%d")}
+        alert_meters_today = {a["Meter"] for a in alerts if a["Date"] == selected_date_str}
 
         def bar_color(row):
             usage = row["Daily Usage (m³)"]
             name = row["Name"]
-            max_daily = max_thresholds.get(name, 0.0)
+            critical = critical_thresholds.get(name, 0.0)
             if name in alert_meters_today:
                 return "#E8443A"
-            if max_daily > 0 and usage > max_daily:
+            if critical > 0 and usage > critical:
                 return "#E8443A"
             return "#4C9BE8"
 
@@ -320,9 +359,15 @@ with tab_usage:
     # --- Daily Usage Over Time ---
     st.subheader("📈 Daily Usage Over Time")
     st.caption("Each date is the end of the 24-hour reading period (previous day ~16:30 → that date ~16:30).")
-    selected = st.multiselect("Select meters to display", all_meters, default=all_meters, key="timeseries")
+    period_options = {"Last 30 days": 30, "Last 60 days": 60, "Last 90 days": 90}
+    col_period, col_meters = st.columns([1, 3])
+    with col_period:
+        selected_period = st.selectbox("Period", list(period_options.keys()), index=1, key="timeseries_period")
+    with col_meters:
+        selected = st.multiselect("Select meters to display", all_meters, default=all_meters, key="timeseries")
     if selected:
-        filtered = daily_df[daily_df["Name"].isin(selected)]
+        cutoff = latest_date - pd.Timedelta(days=period_options[selected_period] - 1)
+        filtered = daily_df[daily_df["Name"].isin(selected) & (daily_df["Date"] >= cutoff)]
         fig_line = px.line(
             filtered,
             x="Date",
@@ -347,6 +392,7 @@ with tab_usage:
         .sort_values("Date")
     )
     total_mean = total_daily["Daily Usage (m³)"].mean()
+    critical_total = sum(critical_thresholds.get(name, 0.0) for name in all_meters)
     fig_total = px.line(
         total_daily,
         x="Date",
@@ -358,30 +404,38 @@ with tab_usage:
     fig_total.add_hline(
         y=total_mean,
         line_dash="dash",
+        line_color="gray",
+        line_width=2,
+        annotation_text=f"System Mean: {total_mean:.2f} m³",
+        annotation_position="top left",
+    )
+    fig_total.add_hline(
+        y=critical_total,
+        line_dash="dash",
         line_color="red",
         line_width=2,
-        annotation_text=f"Mean: {total_mean:.2f} m³",
-        annotation_position="top left",
+        annotation_text=f"Total Critical Limit: {critical_total:.2f} m³",
+        annotation_position="bottom left",
     )
     fig_total.update_layout(hovermode="x unified")
     st.plotly_chart(fig_total, use_container_width=True)
 
     st.divider()
 
-    # --- Meter vs Daily Limit ---
-    st.subheader("📉 Meter Usage vs Daily Limit (rec)")
+    # --- Water Usage vs Limits ---
+    st.subheader("📉 Water Usage vs Limits")
     st.caption("Last 30 days")
     selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
     cutoff_30 = daily_df["Date"].max() - pd.Timedelta(days=29)
     meter_df = daily_df[(daily_df["Name"] == selected_meter) & (daily_df["Date"] >= cutoff_30)].copy()
-    max_daily = max_thresholds.get(selected_meter, 0.0)
-    if max_daily > 0 and not meter_df.empty:
-        days_over = (meter_df["Daily Usage (m³)"] > max_daily).sum()
+    critical_limit = critical_thresholds.get(selected_meter, 0.0)
+    if critical_limit > 0 and not meter_df.empty:
+        days_over = (meter_df["Daily Usage (m³)"] > critical_limit).sum()
         total_days = len(meter_df)
         pct = days_over / total_days * 100
         avg_30 = meter_df["Daily Usage (m³)"].mean()
-        avg_icon = "😊" if avg_30 <= max_daily else "😟"
-        st.markdown(f"**{days_over} of {total_days} days - {pct:.1f}% - over Daily Limit (rec) of {max_daily:.2f} m³ | last 30 days daily avg: {avg_30:.2f} m³ {avg_icon}**")
+        avg_icon = "😊" if avg_30 <= critical_limit else "😟"
+        st.markdown(f"**{days_over} of {total_days} days - {pct:.1f}% - over Critical Limit ({critical_limit:.1f} m³) | last 30 days daily avg: {avg_30:.2f} m³ {avg_icon}**")
     fig_mvmax = go.Figure()
     fig_mvmax.add_trace(go.Scatter(
         x=meter_df["Date"],
@@ -391,13 +445,13 @@ with tab_usage:
         marker=dict(color="#1a4a8a", size=5),
         name="Daily Usage",
     ))
-    if max_daily > 0:
+    if critical_limit > 0:
         fig_mvmax.add_hline(
-            y=max_daily,
+            y=critical_limit,
             line_dash="dash",
             line_color="red",
             line_width=2,
-            annotation_text=f"Daily Limit (rec): {max_daily:.2f} m³",
+            annotation_text=f"Critical Limit: {critical_limit:.1f} m³",
             annotation_position="top left",
         )
     fig_mvmax.update_layout(
@@ -432,11 +486,19 @@ with tab_usage:
 
     # --- Meter Summary ---
     st.subheader("📋 Meter Summary")
+    for col in ["Bedrooms", "Max Daily (m³)", "Min Alert (m³)"]:
+        if col in display_summary.columns:
+            display_summary[col] = pd.to_numeric(display_summary[col], errors="coerce")
     fmt = {c: "{:.4f}" for c in numeric_cols}
     st.dataframe(
-        display_summary.style.format(fmt),
+        display_summary.style.format(fmt, na_rep=""),
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "Bedrooms": st.column_config.NumberColumn("Beds", format="%.1f"),
+            "Max Daily (m³)": st.column_config.NumberColumn("Max Daily (m³)", format="%.1f"),
+            "Min Alert (m³)": st.column_config.NumberColumn("Min Alert (m³)", format="%.1f"),
+        },
     )
 
     st.divider()

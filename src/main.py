@@ -62,8 +62,10 @@ def run():
     initials = scraper.get_initial_readings()
     logger.info(f"Fetched initial readings for {len(initials)} meters.")
 
+    _creds_raw = os.environ["GOOGLE_CREDENTIALS_FILE"]
+    _creds_file = _creds_raw if os.path.isabs(_creds_raw) else os.path.join(os.path.dirname(__file__), "..", _creds_raw)
     writer = SheetsWriter(
-        credentials_file=os.environ["GOOGLE_CREDENTIALS_FILE"],
+        credentials_file=os.path.abspath(_creds_file),
         sheet_id=os.environ["GOOGLE_SHEET_ID"],
     )
 
