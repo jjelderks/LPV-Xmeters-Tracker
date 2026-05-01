@@ -263,7 +263,7 @@ for name in all_meters:
             })
 
 # --- Tabs ---
-tab_usage, tab_billing = st.tabs(["📊 Usage", "💰 Billing"])
+tab_usage, tab_billing = st.tabs(["📊 Usage", "💰 Variable Billing"])
 
 # ================================================================
 # TAB 1: USAGE
@@ -537,7 +537,7 @@ with tab_billing:
     q_start = pd.Timestamp(q_year, (q_num - 1) * 3 + 1, 1)
     q_end = (q_start + pd.offsets.QuarterEnd(0)).normalize()
 
-    st.subheader(f"💰 Billing — {selected_quarter}")
+    st.subheader(f"💰 Variable Billing — {selected_quarter}")
 
     if variable_costs_error:
         st.warning(f"Could not load variable costs from Google Sheets: {variable_costs_error}")
