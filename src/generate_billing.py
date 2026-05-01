@@ -128,7 +128,19 @@ def load_data():
     daily_df = daily_df.dropna(subset=["Date"])
     daily_df["Daily Usage (m³)"] = pd.to_numeric(daily_df["Daily Usage (m³)"], errors="coerce")
     daily_df["Total Flow (m³)"] = pd.to_numeric(daily_df["Total Flow (m³)"], errors="coerce")
-    return summary_df, daily_df
+
+    # Build initial readings dict {name: float} from Summary sheet
+    initial_readings = {}
+    for _, row in summary_df.iterrows():
+        name = str(row.get("Name", "")).strip()
+        val  = row.get("Initial Reading (m³)", "")
+        if name:
+            try:
+                initial_readings[name] = float(val) if str(val).strip() not in ("", "nan") else None
+            except (ValueError, TypeError):
+                pass
+
+    return summary_df, daily_df, initial_readings
 
 
 def load_variable_costs(prev_start, prev_end):
@@ -178,6 +190,37 @@ def _get_total_system_usage(daily_df, all_meter_names, start, end):
     return float(daily_df[mask]["Daily Usage (m³)"].sum())
 
 
+def _get_total_system_usage_q1(daily_df, all_meter_names, initial_readings, end):
+    """
+    Q1-specific total usage: end flow minus initial reading for each meter.
+    Used instead of summing daily_usage because daily data only starts Feb 25,
+    so the daily sum would miss 7 weeks of Jan–Feb usage.
+    """
+    total = 0.0
+    for name in all_meter_names:
+        end_reading = _get_reading(daily_df, name, end)
+        init = initial_readings.get(name)
+        if end_reading is not None and init is not None:
+            total += end_reading - init
+    return total
+
+
+def _get_usage_q1(daily_df, meter_names, initial_readings, end):
+    """
+    Q1-specific per-lot usage: end flow minus initial reading.
+    Returns (usage, begin_total, end_total).
+    """
+    begin_total = sum(
+        v for m in meter_names
+        if (v := initial_readings.get(m)) is not None
+    )
+    end_total = sum(
+        v for m in meter_names
+        if (v := _get_reading(daily_df, m, end)) is not None
+    )
+    return end_total - begin_total, begin_total, end_total
+
+
 def _find_date_col(ws_values, row_idx):
     """Detect whether dates in a row are in column D or E (returns 'D' or 'E')."""
     if row_idx >= len(ws_values):
@@ -193,7 +236,8 @@ def _find_date_col(ws_values, row_idx):
 
 def _build_standard_updates(ws_values, meters, prev_q, prev_start, prev_end,
                              prev_days, prev_var_total, total_system_usage,
-                             daily_df, billing_q, billing_year):
+                             daily_df, billing_q, billing_year,
+                             initial_readings=None):
     """
     Build cell updates for standard tabs (all lots except LotS1).
     Returns list of (cell_a1, value) tuples.
@@ -232,18 +276,23 @@ def _build_standard_updates(ws_values, meters, prev_q, prev_start, prev_end,
     ]
 
     # Readings and usage
+    is_q1 = (prev_start == METER_INSTALL_DATE)
     if meters:
-        # Begin reading = total flow at end of day before prev_start
-        begin_date = prev_start - pd.Timedelta(days=1)
-        begin_total = sum(
-            v for m in meters
-            if (v := _get_reading(daily_df, m, begin_date)) is not None
-        )
-        end_total = sum(
-            v for m in meters
-            if (v := _get_reading(daily_df, m, prev_end)) is not None
-        )
-        usage = _get_usage(daily_df, meters, prev_start, prev_end)
+        if is_q1 and initial_readings:
+            # Q1: daily data only starts Feb 25, so use end_flow − initial_reading
+            usage, begin_total, end_total = _get_usage_q1(daily_df, meters, initial_readings, prev_end)
+        else:
+            # Q2+: full daily data available
+            begin_date = prev_start - pd.Timedelta(days=1)
+            begin_total = sum(
+                v for m in meters
+                if (v := _get_reading(daily_df, m, begin_date)) is not None
+            )
+            end_total = sum(
+                v for m in meters
+                if (v := _get_reading(daily_df, m, prev_end)) is not None
+            )
+            usage = _get_usage(daily_df, meters, prev_start, prev_end)
     else:
         begin_total = 0.0
         end_total = 0.0
@@ -275,7 +324,8 @@ def _build_standard_updates(ws_values, meters, prev_q, prev_start, prev_end,
 
 def _build_lots1_updates(prev_q, prev_start, prev_end, prev_days,
                          prev_var_total, total_system_usage,
-                         daily_df, billing_q, billing_year):
+                         daily_df, billing_q, billing_year,
+                         initial_readings=None):
     """
     Build cell updates for the LotS1 tab (two separate sub-meter sections).
     """
@@ -305,12 +355,24 @@ def _build_lots1_updates(prev_q, prev_start, prev_end, prev_days,
         ("F22", f"${prev_var_total:,.2f}"),
     ]
 
-    begin_date = prev_start - pd.Timedelta(days=1)
+    is_q1 = (prev_start == METER_INSTALL_DATE)
 
-    # S1(a) section
-    begin_a = _get_reading(daily_df, LOT_S1_METER_A, begin_date) or 0.0
-    end_a   = _get_reading(daily_df, LOT_S1_METER_A, prev_end)   or 0.0
-    usage_a = _get_usage(daily_df, [LOT_S1_METER_A], prev_start, prev_end)
+    if is_q1 and initial_readings:
+        # Q1: use initial reading as begin, end_flow − initial as usage
+        begin_a = initial_readings.get(LOT_S1_METER_A) or 0.0
+        end_a   = _get_reading(daily_df, LOT_S1_METER_A, prev_end) or 0.0
+        usage_a = end_a - begin_a
+        begin_b = initial_readings.get(LOT_S1_METER_B) or 0.0
+        end_b   = _get_reading(daily_df, LOT_S1_METER_B, prev_end) or 0.0
+        usage_b = end_b - begin_b
+    else:
+        begin_date = prev_start - pd.Timedelta(days=1)
+        begin_a = _get_reading(daily_df, LOT_S1_METER_A, begin_date) or 0.0
+        end_a   = _get_reading(daily_df, LOT_S1_METER_A, prev_end)   or 0.0
+        usage_a = _get_usage(daily_df, [LOT_S1_METER_A], prev_start, prev_end)
+        begin_b = _get_reading(daily_df, LOT_S1_METER_B, begin_date) or 0.0
+        end_b   = _get_reading(daily_df, LOT_S1_METER_B, prev_end)   or 0.0
+        usage_b = _get_usage(daily_df, [LOT_S1_METER_B], prev_start, prev_end)
 
     updates += [
         ("D24", _fmt_date(prev_start)),
@@ -320,11 +382,6 @@ def _build_lots1_updates(prev_q, prev_start, prev_end, prev_days,
         ("F26", f"{usage_a:.4f}"),
         ("F27", f"{total_system_usage:.4f}"),
     ]
-
-    # S1(b) section
-    begin_b = _get_reading(daily_df, LOT_S1_METER_B, begin_date) or 0.0
-    end_b   = _get_reading(daily_df, LOT_S1_METER_B, prev_end)   or 0.0
-    usage_b = _get_usage(daily_df, [LOT_S1_METER_B], prev_start, prev_end)
 
     updates += [
         ("D32", _fmt_date(prev_start)),
@@ -404,14 +461,21 @@ def generate(billing_q, billing_year, dry_run=False):
           f"({prev_start.date()} – {prev_end.date()}, {prev_days} days)")
     print(f"Dry run        : {dry_run}\n")
 
-    summary_df, daily_df = load_data()
+    summary_df, daily_df, initial_readings = load_data()
     prev_var_total = load_variable_costs(prev_start, prev_end)
     print(f"Q{prev_q} variable costs total: ${prev_var_total:,.2f}\n")
 
     all_metered = [m for meters in LOT_METER_MAP.values() for m in meters]
     all_metered += [LOT_S1_METER_A, LOT_S1_METER_B]
-    total_system_usage = _get_total_system_usage(daily_df, all_metered, prev_start, prev_end)
-    print(f"Q{prev_q} total system usage  : {total_system_usage:.4f} m³\n")
+
+    is_q1 = (prev_start == METER_INSTALL_DATE)
+    if is_q1:
+        # Daily data only starts Feb 25; use end_flow − initial_reading for all meters
+        total_system_usage = _get_total_system_usage_q1(daily_df, all_metered, initial_readings, prev_end)
+        print(f"Q{prev_q} total system usage  : {total_system_usage:.4f} m³  (Q1 — end minus initial readings)\n")
+    else:
+        total_system_usage = _get_total_system_usage(daily_df, all_metered, prev_start, prev_end)
+        print(f"Q{prev_q} total system usage  : {total_system_usage:.4f} m³\n")
 
     client  = _make_client()
     src_wb  = client.open_by_key(INVOICES_SHEET_ID)
@@ -459,12 +523,14 @@ def generate(billing_q, billing_year, dry_run=False):
                 prev_q, prev_start, prev_end, prev_days,
                 prev_var_total, total_system_usage,
                 daily_df, billing_q, billing_year,
+                initial_readings=initial_readings,
             )
         else:
             updates = _build_standard_updates(
                 ws_values, meters, prev_q, prev_start, prev_end,
                 prev_days, prev_var_total, total_system_usage,
                 daily_df, billing_q, billing_year,
+                initial_readings=initial_readings,
             )
 
         # --- Apply or preview ---
@@ -476,8 +542,13 @@ def generate(billing_q, billing_year, dry_run=False):
         else:
             batch = [{"range": cell, "values": [[val]]} for cell, val in updates]
             dst_ws.batch_update(batch, value_input_option="USER_ENTERED")
-            usage = sum(_get_usage(daily_df, meters, prev_start, prev_end)
-                        for _ in [1]) if meters else 0.0
+            if meters:
+                if is_q1:
+                    usage, _, _ = _get_usage_q1(daily_df, meters, initial_readings, prev_end)
+                else:
+                    usage = _get_usage(daily_df, meters, prev_start, prev_end)
+            else:
+                usage = 0.0
             pct = usage / total_system_usage * 100 if total_system_usage > 0 else 0.0
             results.append(f"✅  {dst_title} — {len(updates)} cells, usage {usage:.3f} m³ ({pct:.2f}%)")
             time.sleep(3)

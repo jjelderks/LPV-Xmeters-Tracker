@@ -72,6 +72,7 @@ def run():
     # Read user-set thresholds before rewriting summary
     min_thresholds = writer.get_min_thresholds()
     max_thresholds = writer.get_max_thresholds()
+    critical_thresholds = writer.get_critical_thresholds()
     logger.info(f"Loaded min/max thresholds for {len(min_thresholds)}/{len(max_thresholds)} meters.")
 
     # Write daily readings tab
@@ -92,7 +93,8 @@ def run():
         logger.info("Checking alerts...")
 
     check_alerts(readings, check_dates=check_dates, sheets_writer=writer,
-                 min_thresholds=min_thresholds, max_thresholds=max_thresholds)
+                 min_thresholds=min_thresholds, max_thresholds=max_thresholds,
+                 critical_thresholds=critical_thresholds)
 
     if all_dates:
         _set_last_checked_date(all_dates[-1])

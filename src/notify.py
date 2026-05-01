@@ -47,7 +47,7 @@ def clean_average(daily_usages: list[float]) -> float:
     return sum(filtered) / len(filtered) if filtered else sum(non_zero) / len(non_zero)
 
 
-def check_alerts(readings: list[dict], check_dates: list[str] = None, sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None):
+def check_alerts(readings: list[dict], check_dates: list[str] = None, sheets_writer=None, min_thresholds: dict = None, max_thresholds: dict = None, critical_thresholds: dict = None):
     """
     Check spike alerts for one or more dates and log/alert accordingly.
 
@@ -96,17 +96,16 @@ def check_alerts(readings: list[dict], check_dates: list[str] = None, sheets_wri
 
             usage = date_rows[0]["daily_usage"]
             min_alert = (min_thresholds or {}).get(name, 0.0)
-            max_daily = (max_thresholds or {}).get(name, 0.0)
-            alert_max = max_daily * 1.5 if max_daily > 0 else 0.0
+            critical = (critical_thresholds or {}).get(name, 0.0)
             over_avg = usage > threshold and usage > min_alert
-            over_max = alert_max > 0 and usage > alert_max
-            if over_avg or over_max:
-                if over_avg and over_max:
-                    trigger = f"exceeded 2.5x clean mean (threshold {threshold:.2f} m³) + 1.5x daily limit ({alert_max:.2f} m³)"
-                elif over_max:
-                    trigger = f"exceeded 1.5x daily limit ({alert_max:.2f} m³)"
+            over_critical = critical > 0 and usage > critical
+            if over_avg or over_critical:
+                if over_avg and over_critical:
+                    trigger = f"exceeded 2.5x clean mean ({threshold:.2f} m³) + Critical Limit ({critical:.1f} m³)"
+                elif over_critical:
+                    trigger = f"exceeded Critical Limit ({critical:.1f} m³)"
                 else:
-                    trigger = f"exceeded 2.5x clean mean (threshold {threshold:.2f} m³)"
+                    trigger = f"exceeded 2.5x clean mean ({threshold:.2f} m³)"
                 spike_alerts.append({
                     "meter": name,
                     "usage": usage,

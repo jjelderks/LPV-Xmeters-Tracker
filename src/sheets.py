@@ -94,6 +94,9 @@ class SheetsWriter:
     def get_max_thresholds(self) -> dict:
         return self._read_summary_column("Max Daily (m³)")
 
+    def get_critical_thresholds(self) -> dict:
+        return self._read_summary_column("🔴 Critical (m³)")
+
     def write_summary(self, readings: list[dict], initials: dict):
         """
         Write a summary tab with one row per meter.
@@ -191,8 +194,8 @@ class SheetsWriter:
         spike keys: date, meter, usage, normal_avg, threshold
         Reads the sheet only once per SheetsWriter instance; subsequent calls use cache.
         """
-        HEADERS = ["Date", "Meter", "Usage (m³)", "Clean Mean (m³)",
-                   "Threshold (m³)", "Alerted", "Reason", "Resolved"]
+        HEADERS = ["Date", "Meter", "Usage (m³)", "Normal Avg (m³)",
+                   "Threshold (m³)", "Alerted", "Reason for Trigger", "Resolved", "Clean Mean (m³)", "Notes"]
 
         # Load and cache on first call
         if self._spike_log_ws is None:

@@ -1,2 +1,2 @@
 MAILTO=""
-0 23 * * * cd /home/jjelderks/LPV-Xmeters-Tracker && .venv/bin/python src/main.py --once >> logs/cron.log 2>&1
+30 22 * * * cd /home/jjelderks/LPV-Xmeters-Tracker && .venv/bin/python src/main.py --once >> logs/cron.log 2>&1

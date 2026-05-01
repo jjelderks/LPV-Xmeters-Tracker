@@ -56,7 +56,7 @@ def _get_users() -> dict:
         return {k: dict(v) for k, v in st.secrets["users"].items()}
     # legacy fallback
     return {
-        st.secrets.get("USERNAME", "lpv_medidores"): {
+        st.secrets.get("USERNAME", "lpv_medidores").lower(): {
             "password": st.secrets.get("PASSWORD", "agua"),
             "role": "admin",
             "name": "Admin",
@@ -378,6 +378,17 @@ with tab_usage:
             render_mode="svg",
         )
         fig_line.update_layout(hovermode="x unified")
+        if len(selected) == 1:
+            crit = critical_thresholds.get(selected[0], 0.0)
+            if crit > 0:
+                fig_line.add_hline(
+                    y=crit,
+                    line_dash="dash",
+                    line_color="red",
+                    line_width=2,
+                    annotation_text=f"Critical Limit: {crit:.1f} m³",
+                    annotation_position="top left",
+                )
         st.plotly_chart(fig_line, use_container_width=True)
 
     st.divider()
@@ -408,14 +419,6 @@ with tab_usage:
         line_width=2,
         annotation_text=f"System Mean: {total_mean:.2f} m³",
         annotation_position="top left",
-    )
-    fig_total.add_hline(
-        y=critical_total,
-        line_dash="dash",
-        line_color="red",
-        line_width=2,
-        annotation_text=f"Total Critical Limit: {critical_total:.2f} m³",
-        annotation_position="bottom left",
     )
     fig_total.update_layout(hovermode="x unified")
     st.plotly_chart(fig_total, use_container_width=True)
@@ -556,16 +559,37 @@ with tab_billing:
     )
 
     # --- Filter usage to quarter ---
-    q_usage = (
-        daily_df[
-            (daily_df["Date"] >= q_start) &
-            (daily_df["Date"] <= q_end)
-        ]
-        .groupby("Name")["Daily Usage (m³)"]
-        .sum()
-        .reset_index()
-        .rename(columns={"Daily Usage (m³)": "Usage (m³)"})
-    )
+    _meter_install = pd.Timestamp("2026-01-06")
+    _is_q1_2026 = (q_start <= _meter_install <= q_end)
+
+    if _is_q1_2026:
+        # Daily data only starts Feb 25; use end_flow − initial_reading for true Q1 usage
+        _q1_initial = (
+            summary_df.set_index("Name")["Initial Reading (m³)"]
+            .apply(pd.to_numeric, errors="coerce")
+            .to_dict()
+        )
+        _q1_end = (
+            daily_df[(daily_df["Date"] >= q_start) & (daily_df["Date"] <= q_end)]
+            .sort_values("Date").groupby("Name").last()["Total Flow (m³)"]
+            .to_dict()
+        )
+        q_usage = pd.DataFrame([
+            {"Name": name, "Usage (m³)": (_q1_end.get(name) or 0) - (init or 0)}
+            for name, init in _q1_initial.items()
+            if pd.notna(init) and name in _q1_end
+        ])
+    else:
+        q_usage = (
+            daily_df[
+                (daily_df["Date"] >= q_start) &
+                (daily_df["Date"] <= q_end)
+            ]
+            .groupby("Name")["Daily Usage (m³)"]
+            .sum()
+            .reset_index()
+            .rename(columns={"Daily Usage (m³)": "Usage (m³)"})
+        )
 
     billing_df = summary_df[["Name", "Meter Number"]].merge(q_usage, on="Name", how="left")
     billing_df["Usage (m³)"] = pd.to_numeric(billing_df["Usage (m³)"], errors="coerce").fillna(0)
