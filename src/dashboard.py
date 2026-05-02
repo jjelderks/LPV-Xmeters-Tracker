@@ -245,6 +245,23 @@ for name in all_meters:
                 "Trigger": "2.5× avg exceeded",
             })
 
+# Max Daily alerts — usage > Max Daily threshold
+max_daily_alerts = []
+for name in all_meters:
+    meter_data = daily_df[daily_df["Name"] == name].copy()
+    max_daily = max_thresholds.get(name, 0.0)
+    if max_daily <= 0:
+        continue
+    for _, row in meter_data[meter_data["Date"] >= SPIKE_DISPLAY_FROM].iterrows():
+        usage = row["Daily Usage (m³)"]
+        if usage > max_daily:
+            max_daily_alerts.append({
+                "Date": row["Date"].strftime("%Y-%m-%d"),
+                "Meter": name,
+                "Usage (m³)": round(usage, 4),
+                "Max Daily (m³)": f"{max_daily:.1f}",
+            })
+
 # Leak alerts — hard limit: usage > Critical threshold (burst pipe / stuck valve)
 leak_alerts = []
 for name in all_meters:
@@ -286,6 +303,21 @@ with tab_usage:
         st.dataframe(disp_alerts, use_container_width=True, hide_index=True)
     else:
         st.success("No unusual usage detected.")
+
+    # --- Max Daily Alert ---
+    st.subheader("🔶 Max Daily Alert")
+    if max_daily_alerts:
+        md_df = pd.DataFrame(max_daily_alerts)
+        most_recent_md = md_df["Date"].max()
+        recent_md = md_df[md_df["Date"] == most_recent_md]
+        md_meter_list = ", ".join(sorted(recent_md["Meter"].unique()))
+        st.warning(f"🔶 **Over Max Daily — {most_recent_md}:** {md_meter_list}")
+        last_2_md_dates = sorted(md_df["Date"].unique())[-2:]
+        disp_md = md_df[md_df["Date"].isin(last_2_md_dates)].copy()
+        disp_md["Usage (m³)"] = disp_md["Usage (m³)"].apply(lambda x: f"{x:.2f}")
+        st.dataframe(disp_md, use_container_width=True, hide_index=True)
+    else:
+        st.success("No meters over Max Daily threshold.")
 
     # --- Leak / Hard Limit Alert ---
     st.subheader("🚨 Leak / Critical Limit")
