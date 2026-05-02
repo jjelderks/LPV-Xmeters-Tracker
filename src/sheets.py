@@ -177,7 +177,7 @@ class SheetsWriter:
                 min_alert,
                 bedrooms,
                 max_daily_cell,
-                f'=IF(J{row_num}="","",J{row_num}*2.5)',
+                f'=IF(J{row_num}="","",J{row_num}*2)',
                 existing_notes.get(name, ""),
             ])
 
