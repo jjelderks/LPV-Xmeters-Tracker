@@ -137,6 +137,7 @@ class SheetsWriter:
             "Min Alert (m³)",
             "Bedrooms",
             "Max Daily (m³)",
+            "🔴 Critical (m³)",
             "Notes",
         ]
 
@@ -176,6 +177,7 @@ class SheetsWriter:
                 min_alert,
                 bedrooms,
                 max_daily_cell,
+                f'=IF(J{row_num}="","",J{row_num}*2.5)',
                 existing_notes.get(name, ""),
             ])
 

@@ -431,14 +431,14 @@ with tab_usage:
     selected_meter = st.selectbox("Select meter", all_meters, key="meter_vs_max")
     cutoff_30 = daily_df["Date"].max() - pd.Timedelta(days=29)
     meter_df = daily_df[(daily_df["Name"] == selected_meter) & (daily_df["Date"] >= cutoff_30)].copy()
-    critical_limit = critical_thresholds.get(selected_meter, 0.0)
-    if critical_limit > 0 and not meter_df.empty:
-        days_over = (meter_df["Daily Usage (m³)"] > critical_limit).sum()
+    max_daily_limit = max_thresholds.get(selected_meter, 0.0)
+    if max_daily_limit > 0 and not meter_df.empty:
+        days_over = (meter_df["Daily Usage (m³)"] > max_daily_limit).sum()
         total_days = len(meter_df)
         pct = days_over / total_days * 100
         avg_30 = meter_df["Daily Usage (m³)"].mean()
-        avg_icon = "😊" if avg_30 <= critical_limit else "😟"
-        st.markdown(f"**{days_over} of {total_days} days - {pct:.1f}% - over Critical Limit ({critical_limit:.1f} m³) | last 30 days daily avg: {avg_30:.2f} m³ {avg_icon}**")
+        avg_icon = "😊" if avg_30 <= max_daily_limit else "😟"
+        st.markdown(f"**{days_over} of {total_days} days - {pct:.1f}% - over Max Daily ({max_daily_limit:.1f} m³) | last 30 days daily avg: {avg_30:.2f} m³ {avg_icon}**")
     fig_mvmax = go.Figure()
     fig_mvmax.add_trace(go.Scatter(
         x=meter_df["Date"],
@@ -448,13 +448,13 @@ with tab_usage:
         marker=dict(color="#1a4a8a", size=5),
         name="Daily Usage",
     ))
-    if critical_limit > 0:
+    if max_daily_limit > 0:
         fig_mvmax.add_hline(
-            y=critical_limit,
+            y=max_daily_limit,
             line_dash="dash",
             line_color="red",
             line_width=2,
-            annotation_text=f"Critical Limit: {critical_limit:.1f} m³",
+            annotation_text=f"Max Daily Threshold: {max_daily_limit:.1f} m³",
             annotation_position="top left",
         )
     fig_mvmax.update_layout(
